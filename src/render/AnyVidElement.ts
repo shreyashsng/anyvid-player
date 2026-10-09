@@ -10,7 +10,7 @@
  * - volume, playbackRate, currentTime, duration, paused, ended
  */
 
-import { MoviPlayer } from "../core/MoviPlayer";
+import { MoviPlayer } from "../core/AnyVidPlayer";
 import { NativeVideoWrapper } from "./NativeVideoWrapper";
 import { loadingIndicatorMarkup, loadingIndicatorStyles } from "./LoadingIndicator";
 import type {

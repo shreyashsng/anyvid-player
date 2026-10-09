@@ -68,24 +68,24 @@
       "default": "./dist/vue/slim.js"
     },
     "./svelte": {
-      "types": "./dist/svelte/MoviPlayer.svelte",
-      "svelte": "./dist/svelte/MoviPlayer.svelte",
-      "default": "./dist/svelte/MoviPlayer.svelte"
+      "types": "./dist/svelte/AnyVidPlayer.svelte",
+      "svelte": "./dist/svelte/AnyVidPlayer.svelte",
+      "default": "./dist/svelte/AnyVidPlayer.svelte"
     },
     "./svelte/slim": {
-      "types": "./dist/svelte/MoviPlayerSlim.svelte",
-      "svelte": "./dist/svelte/MoviPlayerSlim.svelte",
-      "default": "./dist/svelte/MoviPlayerSlim.svelte"
+      "types": "./dist/svelte/AnyVidPlayerSlim.svelte",
+      "svelte": "./dist/svelte/AnyVidPlayerSlim.svelte",
+      "default": "./dist/svelte/AnyVidPlayerSlim.svelte"
     },
-    "./svelte/MoviSource": {
-      "types": "./dist/svelte/MoviSource.svelte",
-      "svelte": "./dist/svelte/MoviSource.svelte",
-      "default": "./dist/svelte/MoviSource.svelte"
+    "./svelte/AnyVidSource": {
+      "types": "./dist/svelte/AnyVidSource.svelte",
+      "svelte": "./dist/svelte/AnyVidSource.svelte",
+      "default": "./dist/svelte/AnyVidSource.svelte"
     },
-    "./svelte/MoviTrack": {
-      "types": "./dist/svelte/MoviTrack.svelte",
-      "svelte": "./dist/svelte/MoviTrack.svelte",
-      "default": "./dist/svelte/MoviTrack.svelte"
+    "./svelte/AnyVidTrack": {
+      "types": "./dist/svelte/AnyVidTrack.svelte",
+      "svelte": "./dist/svelte/AnyVidTrack.svelte",
+      "default": "./dist/svelte/AnyVidTrack.svelte"
     }
   },
   "files": [

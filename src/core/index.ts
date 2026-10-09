@@ -1,4 +1,4 @@
-export { MoviPlayer } from './MoviPlayer';
+export { MoviPlayer, MoviPlayer as AnyVidPlayer } from './AnyVidPlayer';
 export { TrackManager } from './TrackManager';
 export { Clock } from './Clock';
 export { PlayerStateManager } from './PlayerState';

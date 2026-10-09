@@ -1,4 +1,4 @@
-#include "movi.h"
+#include "anyvid.h"
 
 EMSCRIPTEN_KEEPALIVE
 double movi_get_duration(MoviContext *ctx) {

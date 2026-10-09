@@ -105,15 +105,15 @@ export { PlayerStateManager } from './core/PlayerState';
 export { PlaybackController } from './core/PlaybackController';
 
 // Player
-export { MoviPlayer } from './core/MoviPlayer';
+export { MoviPlayer, MoviPlayer as AnyVidPlayer } from './core/AnyVidPlayer';
 
-// Main export: MoviElement & AnyVidElement (custom HTML element)
-export { MoviElement, MoviElement as AnyVidElement } from './render/MoviElement';
-// Host-supplied bar buttons / context-menu rows — see MoviElement.addControl.
-export type { MoviControlSpec, MoviControlItem, MoviDividerSpec } from './render/MoviElement';
-// One entry in the queue — see MoviElement.playlist.
-export type { MoviPlaylistItem } from './render/MoviElement';
-import type { MoviElement as MoviElementType } from './render/MoviElement';
+// Main export: AnyVidElement & MoviElement (custom HTML element)
+export { MoviElement as AnyVidElement, MoviElement } from './render/AnyVidElement';
+// Host-supplied bar buttons / context-menu rows — see AnyVidElement.addControl.
+export type { MoviControlSpec, MoviControlItem, MoviDividerSpec } from './render/AnyVidElement';
+// One entry in the queue — see AnyVidElement.playlist.
+export type { MoviPlaylistItem } from './render/AnyVidElement';
+import type { MoviElement as MoviElementType } from './render/AnyVidElement';
 
 // Package version, baked in at build time. `import { VERSION } from
 // "movi-player/element"`, or read MoviElement.version / element.version.

@@ -2,7 +2,7 @@
  * movi.c - FFmpeg WASM Demuxer with Asyncify (Main entry)
  */
 
-#include "movi.h"
+#include "anyvid.h"
 
 // Forward declarations of JavaScript async functions using EM_JS
 // IMPORTANT: Uses split 32-bit low/high parts to handle 64-bit offsets for

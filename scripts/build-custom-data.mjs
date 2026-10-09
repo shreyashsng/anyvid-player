@@ -31,7 +31,7 @@ import { dirname, join } from "node:path";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(join(ROOT, p), "utf8");
 
-const ELEMENT_SRC = read("src/render/MoviElement.ts");
+const ELEMENT_SRC = read("src/render/AnyVidElement.ts");
 // Parts and slots are not all in MoviElement: caption lines are written by the
 // renderer, and the native fallback writes its own. Scanning only the element
 // would have silently dropped `subtitle` from the manifest.

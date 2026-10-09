@@ -1,4 +1,4 @@
-#include "movi.h"
+#include "anyvid.h"
 
 EMSCRIPTEN_KEEPALIVE
 int movi_get_frame_width(MoviContext *ctx) {

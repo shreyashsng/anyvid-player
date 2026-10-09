@@ -1,10 +1,10 @@
-<!-- Minimal Vue 3 example for movi-player/vue.
-     Run inside any Vite Vue app:  npm i movi-player -->
+<!-- Minimal Vue 3 example for anyvid-player/vue.
+     Run inside any Vite Vue app:  npm i anyvid-player -->
 <script setup lang="ts">
 import { ref } from "vue";
-import { MoviPlayer, type MoviElement, type QoEEvent } from "movi-player/vue";
+import { AnyVidPlayer, type AnyVidElement, type QoEEvent } from "../../packages/vue";
 
-const player = ref<{ element: MoviElement | null }>();
+const player = ref<{ element: AnyVidElement | null }>();
 const qoe = ref<QoEEvent[]>([]);
 
 function onQoe(e: QoEEvent) {
@@ -17,11 +17,11 @@ function boost() {
 
 <template>
   <div style="max-width: 900px; margin: 2rem auto; font-family: system-ui">
-    <h1>movi-player · Vue</h1>
+    <h1>anyvid-player · Vue</h1>
 
-    <MoviPlayer
+    <AnyVidPlayer
       ref="player"
-      src="https://moviplayer.com/sample.mkv"
+      src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
       controls
       autoplay
       muted

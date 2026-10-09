@@ -222,7 +222,7 @@ LINK_FLAGS=(
     -s SUPPORT_ERRNO=0
     -sUSE_ZLIB=1
     --closure 0
-    --js-library /src/wasm/library_movi.js
+    --js-library /src/wasm/library_anyvid.js
 )
 
 # Default build — WASM embedded (SINGLE_FILE). Unchanged output.

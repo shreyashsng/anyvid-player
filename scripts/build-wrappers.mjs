@@ -45,10 +45,10 @@ copyFileSync("packages/react/slim.tsx", "dist/react/slim.tsx");
 copyFileSync("packages/vue/wrapper.ts", "dist/vue/wrapper.ts");
 copyFileSync("packages/vue/index.ts", "dist/vue/index.ts");
 copyFileSync("packages/vue/slim.ts", "dist/vue/slim.ts");
-copyFileSync("packages/svelte/MoviPlayer.svelte", "dist/svelte/MoviPlayer.svelte");
-copyFileSync("packages/svelte/MoviPlayerSlim.svelte", "dist/svelte/MoviPlayerSlim.svelte");
-copyFileSync("packages/svelte/MoviSource.svelte", "dist/svelte/MoviSource.svelte");
-copyFileSync("packages/svelte/MoviTrack.svelte", "dist/svelte/MoviTrack.svelte");
+copyFileSync("packages/svelte/AnyVidPlayer.svelte", "dist/svelte/AnyVidPlayer.svelte");
+copyFileSync("packages/svelte/AnyVidPlayerSlim.svelte", "dist/svelte/AnyVidPlayerSlim.svelte");
+copyFileSync("packages/svelte/AnyVidSource.svelte", "dist/svelte/AnyVidSource.svelte");
+copyFileSync("packages/svelte/AnyVidTrack.svelte", "dist/svelte/AnyVidTrack.svelte");
 
 console.log(
   "[wrappers] react + vue transpiled (default + slim), svelte copied → dist/{react,vue,svelte}",

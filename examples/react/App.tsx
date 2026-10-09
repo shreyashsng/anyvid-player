@@ -1,19 +1,19 @@
-// Minimal React example for movi-player/react.
-// Run inside any Vite/CRA/Next React app:  npm i movi-player
+// Minimal React example for anyvid-player/react.
+// Run inside any Vite/CRA/Next React app:  npm i anyvid-player
 import { useRef, useState } from "react";
-import { MoviPlayer, type MoviElement, type QoEEvent } from "movi-player/react";
+import { AnyVidPlayer, type AnyVidElement, type QoEEvent } from "../../packages/react";
 
 export default function App() {
-  const playerRef = useRef<MoviElement>(null);
+  const playerRef = useRef<AnyVidElement>(null);
   const [qoe, setQoe] = useState<QoEEvent[]>([]);
 
   return (
     <div style={{ maxWidth: 900, margin: "2rem auto", fontFamily: "system-ui" }}>
-      <h1>movi-player · React</h1>
+      <h1>anyvid-player · React</h1>
 
-      <MoviPlayer
+      <AnyVidPlayer
         ref={playerRef}
-        src="https://moviplayer.com/sample.mkv"
+        src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
         controls
         autoplay
         muted

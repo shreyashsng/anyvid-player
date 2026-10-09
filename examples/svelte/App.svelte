@@ -1,10 +1,10 @@
-<!-- Minimal Svelte example for movi-player/svelte.
-     Run inside any Vite Svelte app:  npm i movi-player -->
+<!-- Minimal Svelte example for anyvid-player/svelte.
+     Run inside any Vite Svelte app:  npm i anyvid-player -->
 <script lang="ts">
-  import MoviPlayer from "movi-player/svelte";
-  import type { MoviElement, QoEEvent } from "movi-player/element";
+  import AnyVidPlayer from "../../packages/svelte/AnyVidPlayer.svelte";
+  import type { AnyVidElement, QoEEvent } from "../../src/element";
 
-  let player: MoviElement | null = null;
+  let player: AnyVidElement | null = null;
   let qoe: QoEEvent[] = [];
 
   function onQoe(e: CustomEvent<QoEEvent>) {
@@ -13,17 +13,17 @@
 </script>
 
 <div style="max-width: 900px; margin: 2rem auto; font-family: system-ui">
-  <h1>movi-player · Svelte</h1>
+  <h1>anyvid-player · Svelte</h1>
 
-  <MoviPlayer
+  <AnyVidPlayer
     bind:element={player}
-    src="https://moviplayer.com/sample.mkv"
+    src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
     controls
     autoplay
     muted
     theme="dark"
     style="width: 100%; aspect-ratio: 16 / 9; border-radius: 12px"
-    on:movi-qoe={onQoe}
+    on:anyvid-qoe={onQoe}
   />
 
   <div style="margin-top: 12px; display: flex; gap: 8px">

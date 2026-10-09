@@ -4,7 +4,7 @@
  * Uses callback pattern to bypass Asyncify return value issues.
  */
 
-#include "movi.h"
+#include "anyvid.h"
 #include <libswscale/swscale.h>
 #include <libavutil/imgutils.h>
 

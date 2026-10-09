@@ -297,18 +297,18 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "moviPlayer",
-          "title": "MoviPlayer",
-          "icon": "icons/movi-sidebar.svg"
+          "id": "anyvidPlayer",
+          "title": "AnyVidPlayer",
+          "icon": "icons/anyvid-sidebar.svg"
         }
       ]
     },
     "views": {
-      "moviPlayer": [
+      "anyvidPlayer": [
         {
-          "id": "moviPlayer.actions",
+          "id": "anyvidPlayer.actions",
           "name": "Quick Actions",
-          "icon": "icons/movi-sidebar.svg"
+          "icon": "icons/anyvid-sidebar.svg"
         }
       ]
     },

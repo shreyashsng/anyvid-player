@@ -148,7 +148,7 @@ If you are playing local files using `FileSource` (drag & drop), you do **not** 
 
 ## 🚀 Next Steps
 
-- **[Why Movi-Player?](/guide/why-movi-player)** - Learn about HDR and format support.
+- **[Why AnyVid-Player?](/guide/why-anyvid-player)** - Learn about HDR and format support.
 - **[Custom Element API](/guide/custom-element)** - Explore all attributes and methods.
 - **[Local File Playback](/guide/local-files)** - Build "no-upload" video apps.
 - **[Troubleshooting](/guide/troubleshooting)** - Common setup issues and fixes.
