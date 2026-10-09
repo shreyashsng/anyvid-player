@@ -1,0 +1,1424 @@
+{
+  "schemaVersion": "2.0.0",
+  "readme": "README.md",
+  "modules": [
+    {
+      "kind": "javascript-module",
+      "path": "dist/element.js",
+      "declarations": [
+        {
+          "kind": "class",
+          "name": "MoviElement",
+          "tagName": "movi-player",
+          "customElement": true,
+          "description": "MoviPlayer — a WASM + WebCodecs video player custom element.\n\nPlays formats the browser cannot (MKV, HEVC, AV1, TrueHD/DTS, …) on a WebGL2 canvas, with adaptive quality, HDR, subtitles and a full built-in UI.",
+          "attributes": [
+            {
+              "name": "src",
+              "description": "Specifies the video source URL or File object.",
+              "type": {
+                "text": "\"canvas\""
+              }
+            },
+            {
+              "name": "autopictureinpicture",
+              "description": "Enter Picture-in-Picture automatically when the tab is hidden, and leave it on",
+              "type": {
+                "text": "\"canvas\""
+              }
+            },
+            {
+              "name": "autoplay",
+              "description": "Starts playback automatically when loaded.",
+              "type": {
+                "text": "\"canvas\""
+              }
+            },
+            {
+              "name": "controls",
+              "description": "Shows/hides the built-in UI controls.",
+              "type": {
+                "text": "\"canvas\""
+              }
+            },
+            {
+              "name": "loop",
+              "description": "Restarts playback when the video ends — or, with a queue, asks for the queue",
+              "type": {
+                "text": "\"canvas\""
+              }
+            },
+            {
+              "name": "muted",
+              "description": "Mutes audio by default.",
+              "type": {
+                "text": "\"canvas\""
+              }
+            },
+            {
+              "name": "playsinline",
+              "description": "Prevents auto-fullscreen on iOS (plays inline instead). It also — on **any touch",
+              "type": {
+                "text": "\"canvas\""
+              }
+            },
+            {
+              "name": "preload",
+              "description": "Hints how much data to buffer initially.",
+              "type": {
+                "text": "\"none\" | \"metadata\" | \"auto\""
+              }
+            },
+            {
+              "name": "probesize",
+              "description": "How far the demuxer may read before it says what the streams are.",
+              "type": {
+                "text": "\"dark\" | \"light\""
+              }
+            },
+            {
+              "name": "probeduration",
+              "description": "How much media the demuxer may analyse before it says what the streams are, in",
+              "type": {
+                "text": "\"dark\" | \"light\""
+              }
+            },
+            {
+              "name": "poster",
+              "description": "Displays an image before playback starts.",
+              "type": {
+                "text": "\"canvas\""
+              }
+            },
+            {
+              "name": "posterfit",
+              "description": "How the poster is fitted, when it should not be fitted the way the video is.",
+              "type": {
+                "text": "\"canvas\""
+              }
+            },
+            {
+              "name": "width",
+              "description": "Sets element dimensions (CSS preferred).",
+              "type": {
+                "text": "\"none\" | \"metadata\" | \"auto\""
+              }
+            },
+            {
+              "name": "height",
+              "description": "Sets element dimensions (CSS preferred).",
+              "type": {
+                "text": "\"none\" | \"metadata\" | \"auto\""
+              }
+            },
+            {
+              "name": "crossorigin",
+              "description": "CORS mode for cross-origin videos.",
+              "type": {
+                "text": "\"anonymous\" | \"use-credentials\""
+              }
+            },
+            {
+              "name": "volume",
+              "description": "Sets the initial audio volume (0.0 to 1.0). User preference persists across reloads via OPFS and overrides this default on subsequent loads.",
+              "type": {
+                "text": "\"canvas\""
+              }
+            },
+            {
+              "name": "playbackrate",
+              "description": "Sets the initial playback speed. Persists across reloads like `volume`.",
+              "type": {
+                "text": "\"canvas\""
+              }
+            },
+            {
+              "name": "subtitledelay",
+              "description": "Shifts subtitle timing relative to video, in seconds. Sign matches VLC and mpv: **positive** values shift subtitles **later**, negative shifts them earlier.",
+              "type": {
+                "text": "\"native\""
+              }
+            },
+            {
+              "name": "subtitlesize",
+              "description": "Subtitle size multiplier"
+            },
+            {
+              "name": "subtitlecolor",
+              "description": "Subtitle text color"
+            },
+            {
+              "name": "subtitlebg",
+              "description": "Subtitle background opacity (0..1)"
+            },
+            {
+              "name": "subtitleedge",
+              "description": "Subtitle edge style",
+              "type": {
+                "text": "\"none\" | \"shadow\" | \"outline\" | \"raised\""
+              }
+            },
+            {
+              "name": "ambientmode",
+              "description": "Enables ambient background effects."
+            },
+            {
+              "name": "ambientwrapper",
+              "description": "Specifies external element for ambient effects."
+            },
+            {
+              "name": "cropbars",
+              "description": "Crops the black bars that are part of the **picture**.",
+              "type": {
+                "text": "\"dark\" | \"light\""
+              }
+            },
+            {
+              "name": "backgroundplay",
+              "description": "Lets [`autoplay`](#autoplay) start while the tab is **hidden**.",
+              "type": {
+                "text": "\"dark\" | \"light\""
+              }
+            },
+            {
+              "name": "bindav",
+              "description": "Stalls the sound and the picture **together**. On by default.",
+              "type": {
+                "text": "\"dark\" | \"light\""
+              }
+            },
+            {
+              "name": "renderer",
+              "description": "Chooses the rendering backend.",
+              "type": {
+                "text": "\"canvas\""
+              }
+            },
+            {
+              "name": "objectfit",
+              "description": "Controls how video fills the canvas.",
+              "type": {
+                "text": "\"contain\" | \"cover\" | \"fill\" | \"zoom\" | \"control\""
+              }
+            },
+            {
+              "name": "rotate",
+              "description": "Rotate video, in degrees (snaps to a quarter-turn)",
+              "type": {
+                "text": "\"0\" | \"90\" | \"180\" | \"270\""
+              }
+            },
+            {
+              "name": "thumb",
+              "description": "Generates thumbnails on demand (used internally for preview)."
+            },
+            {
+              "name": "hdr",
+              "description": "Enables/disables HDR rendering.",
+              "type": {
+                "text": "\"dark\" | \"light\""
+              }
+            },
+            {
+              "name": "theme",
+              "description": "Sets the UI theme.",
+              "type": {
+                "text": "\"dark\" | \"light\""
+              }
+            },
+            {
+              "name": "sw",
+              "description": "Forces software decoding (using FFmpeg WASM) instead of hardware-accelerated WebCodecs."
+            },
+            {
+              "name": "fps",
+              "description": "Overrides the video frame rate with a custom value."
+            },
+            {
+              "name": "gesturefs",
+              "description": "**Deprecated** — use `playsinline`"
+            },
+            {
+              "name": "nohotkeys",
+              "description": "Disables all keyboard shortcuts for playback control.",
+              "type": {
+                "text": "\"native\""
+              }
+            },
+            {
+              "name": "startat",
+              "description": "Specifies the time (in seconds) where playback should start.",
+              "type": {
+                "text": "\"native\""
+              }
+            },
+            {
+              "name": "fastseek",
+              "description": "Enables fast seek controls for quick ±10s navigation.",
+              "type": {
+                "text": "\"native\""
+              }
+            },
+            {
+              "name": "doubletap",
+              "description": "Enables/disables double-tap to seek gesture.",
+              "type": {
+                "text": "\"native\""
+              }
+            },
+            {
+              "name": "themecolor",
+              "description": "Sets the player's accent colors — one or two, separated by a space.",
+              "type": {
+                "text": "\"native\""
+              }
+            },
+            {
+              "name": "buffersize",
+              "description": "Target prefetch window in **megabytes** — how far ahead of playback the source should try to keep buffered.",
+              "type": {
+                "text": "\"native\""
+              }
+            },
+            {
+              "name": "spinnerdelay",
+              "description": "How long an interruption has to last, in **seconds**, before the viewer is shown a loading spinner.",
+              "type": {
+                "text": "\"native\""
+              }
+            },
+            {
+              "name": "posterdelay",
+              "description": "How long to wait, in **milliseconds**, before putting the opening poster up — the cover shown while a source loads its first frame.",
+              "type": {
+                "text": "\"native\""
+              }
+            },
+            {
+              "name": "title",
+              "description": "Sets the video title shown in the in-player overlay. Unlike the global HTML `title` attribute, this does **not** trigger a native browser tooltip on hover.",
+              "type": {
+                "text": "\"canvas\""
+              }
+            },
+            {
+              "name": "showtitle",
+              "description": "Shows the title bar overlay at the top of the player.",
+              "type": {
+                "text": "\"canvas\""
+              }
+            },
+            {
+              "name": "diagnostics",
+              "description": "Real-time telemetry diagnostics HUD overlay (alias for `stats`)"
+            },
+            {
+              "name": "stats",
+              "description": "Display real-time telemetry HUD overlay (FPS, dropped frames, decode latency, buffer lead, memory)"
+            },
+            {
+              "name": "titlemode",
+              "description": "Decides where the title bar is allowed to appear, and whether it carries a back arrow. Space- or comma-separated tokens, in any order:",
+              "type": {
+                "text": "\"canvas\""
+              }
+            },
+            {
+              "name": "subtitlepicker",
+              "description": "Adds an \"Add subtitle file…\" row to the subtitle menu for picking a local SRT/VTT/TTML. Read in the page, never uploaded"
+            },
+            {
+              "name": "chapters",
+              "description": "Chapters that aren't in the media file. The player already reads chapter atoms out of MKV/MP4 containers; this is for the sources that keep them somewhere else — YouTube in the watch page, a CMS in its own database. Each entry is `{title, start, end?, image?}`, where `image` is artwork the timeline tile shows in place of a frame decoded at `start`.",
+              "type": {
+                "text": "\"canvas\""
+              }
+            },
+            {
+              "name": "resume",
+              "description": "Saves playback position to localStorage and shows a resume dialog on reload.",
+              "type": {
+                "text": "\"native\""
+              }
+            },
+            {
+              "name": "resumekey",
+              "description": "Files the resume position under a name you choose instead of the title.",
+              "type": {
+                "text": "\"native\""
+              }
+            },
+            {
+              "name": "stablevolume",
+              "description": "Enables loudness normalization (DynamicsCompressorNode). Reduces loud scenes and boosts quiet ones.",
+              "type": {
+                "text": "\"native\""
+              }
+            },
+            {
+              "name": "encrypted",
+              "description": "Enables encrypted video playback. Requires `tokenurl` and `videourl` attributes.",
+              "type": {
+                "text": "\"native\""
+              }
+            },
+            {
+              "name": "tokenurl",
+              "description": "Token endpoint URL for encrypted playback. Server returns HMAC signing secret and file metadata.",
+              "type": {
+                "text": "\"native\""
+              }
+            },
+            {
+              "name": "videourl",
+              "description": "Video endpoint URL for encrypted playback. Chunks are served with token + HMAC validation.",
+              "type": {
+                "text": "\"native\""
+              }
+            },
+            {
+              "name": "videoid",
+              "description": "Video identifier sent to the token server. Maps to a specific encrypted file on the server.",
+              "type": {
+                "text": "\"native\""
+              }
+            },
+            {
+              "name": "drm",
+              "description": "Enables DRM playback mode for HLS streams. When set, the player switches to a native `<video>` element + EME API instead of the canvas pipeline. Canvas-only features (rotation, snapshots) are disabled in this mode.",
+              "type": {
+                "text": "\"native\""
+              }
+            },
+            {
+              "name": "licenseurl",
+              "description": "Widevine/FairPlay license server URL for DRM playback. Required when `drm` is set.",
+              "type": {
+                "text": "\"native\""
+              }
+            },
+            {
+              "name": "licenseheaders",
+              "description": "Extra HTTP headers sent with the **DRM license request only** — the auth token, customer ID or provider-specific header your license server expects. A JSON object string; invalid JSON is ignored with a console warning.",
+              "type": {
+                "text": "\"native\""
+              }
+            },
+            {
+              "name": "headers",
+              "description": "Custom HTTP headers applied to **every** media network request — adaptive-stream manifests *and* their segments (Shaka request filter, hls.js `xhrSetup`, dash.js request interceptor), progressive HTTP, thumbnails, and the encrypted source (stream GET + token refresh). Use it to carry auth tokens, signed-URL headers, or API keys.",
+              "type": {
+                "text": "\"native\""
+              }
+            },
+            {
+              "name": "audioonly",
+              "description": "Data-saver mode — play only the audio and skip the video decode to save CPU and bandwidth. Toggleable live (no reload for muxed/file sources).",
+              "type": {
+                "text": "\"native\""
+              }
+            },
+            {
+              "name": "lcevc",
+              "description": "Enables MPEG-5 Part 2 **LCEVC** enhancement-layer decoding for adaptive streams. Requires the external `lcevc_dec.js` library — point `lcevcurl` at it to lazy-load, or expose a global `LCEVCdec`.",
+              "type": {
+                "text": "\"none\" | \"metadata\" | \"auto\""
+              }
+            },
+            {
+              "name": "lcevcurl",
+              "description": "Enables MPEG-5 Part 2 **LCEVC** enhancement-layer decoding for adaptive streams. Requires the external `lcevc_dec.js` library — point `lcevcurl` at it to lazy-load, or expose a global `LCEVCdec`.",
+              "type": {
+                "text": "\"none\" | \"metadata\" | \"auto\""
+              }
+            },
+            {
+              "name": "postertime",
+              "description": "Generates a native-resolution poster frame from a timestamp instead of (or as a fallback for) `poster`. Useful when you don't have a pre-rendered thumbnail but want to show a representative frame.",
+              "type": {
+                "text": "\"canvas\""
+              }
+            },
+            {
+              "name": "vr",
+              "description": "Render immersive / spherical video. The player auto-enters the right projection from the source's spherical metadata, so for ordinary 360 clips you don't need this at all — `vr` is for forcing a projection or marking a source whose metadata is missing."
+            },
+            {
+              "name": "vrpad",
+              "description": "Opt-in on-screen joystick for looking around in `vr` mode (handy on touch / without a mouse)."
+            },
+            {
+              "name": "audiooutput",
+              "description": "Route audio to a specific output device (speakers, Bluetooth, a virtual device) via `AudioContext.setSinkId`. Accepts a concrete `deviceId` **or** a **label substring** (case-insensitive) — handy because device ids are session-salted, so a substring like `\"Headphones\"` reliably targets the same physical device across reloads. `\"\"` / `\"default\"` routes to the system default."
+            },
+            {
+              "name": "fallback",
+              "description": "What to do with a source Movi itself can't play.",
+              "type": {
+                "text": "\"native\""
+              }
+            },
+            {
+              "name": "engine",
+              "description": "Which playback engine leads, and what follows it. Movi has four ways to play a source and, by default, a fixed order: its own WASM demuxer + WebCodecs pipeline first; Shaka (then dash.js / hls.js) for adaptive manifests; the WASM demuxer again as the manifest fallback; the browser's `<video>` last. `engine` re-orders that — the first name listed is attempted first, and any others define what's tried when it fails, replacing the built-in escalation.",
+              "type": {
+                "text": "\"wasm\" | \"shaka\" | \"dashjs\" | \"hlsjs\" | \"native\""
+              }
+            },
+            {
+              "name": "wasmurl",
+              "description": "URL of the external `movi.wasm`, used only by the **slim build**",
+              "type": {
+                "text": "\"native\""
+              }
+            },
+            {
+              "name": "persist",
+              "description": "Which settings to remember across loads and sessions. Space-separated; nothing",
+              "type": {
+                "text": "\"canvas\""
+              }
+            },
+            {
+              "name": "persistkey",
+              "description": "Namespaces everything [`persist`](#persist) stores, so two players on a page —",
+              "type": {
+                "text": "\"canvas\""
+              }
+            },
+            {
+              "name": "controlslist",
+              "description": "Switches built-in controls off, as `no<name>` tokens — the same shape",
+              "type": {
+                "text": "\"canvas\""
+              }
+            },
+            {
+              "name": "disablepictureinpicture",
+              "description": "Boolean. Refuses Picture-in-Picture, the same as `<video disablepictureinpicture>`:",
+              "type": {
+                "text": "\"canvas\""
+              }
+            },
+            {
+              "name": "disableremoteplayback",
+              "description": "Boolean. Turns off remote playback targets (AirPlay, Cast) for the element, the same",
+              "type": {
+                "text": "\"canvas\""
+              }
+            },
+            {
+              "name": "playlist",
+              "description": "A queue. The bar grows Previous and Next, `Shift+P` / `Shift+N` walk it, and the",
+              "type": {
+                "text": "\"canvas\""
+              }
+            },
+            {
+              "name": "playlistindex",
+              "description": "Which item to open on. Default `0`. The `playlistIndex` property reads and",
+              "type": {
+                "text": "\"canvas\""
+              }
+            },
+            {
+              "name": "autoadvance",
+              "description": "Let the end of one item start the next. **Off by default** — a queue a page",
+              "type": {
+                "text": "\"canvas\""
+              }
+            },
+            {
+              "name": "shuffle",
+              "description": "Play the queue in a random order. **Off by default.**",
+              "type": {
+                "text": "\"canvas\""
+              }
+            },
+            {
+              "name": "smoothwarning",
+              "description": "Shows a notice when what is loaded is not expected to play smoothly on this",
+              "type": {
+                "text": "\"native\""
+              }
+            },
+            {
+              "name": "nolinkwarning",
+              "description": "Keeps `smoothwarning` on but never raises the link-speed notice (\"This media",
+              "type": {
+                "text": "\"native\""
+              }
+            }
+          ],
+          "events": [
+            {
+              "name": "loadstart",
+              "description": "null }",
+              "type": {
+                "text": "CustomEvent<{ src: string \\>"
+              }
+            },
+            {
+              "name": "abort",
+              "description": "A load was stopped before it had data",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "suspend",
+              "description": "Preload settled; no more bytes are being pulled",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "encrypted",
+              "description": "The source needs a key; the handshake is starting",
+              "type": {
+                "text": "CustomEvent<{ initDataType, tokenUrl, videoUrl }>"
+              }
+            },
+            {
+              "name": "waitingforkey",
+              "description": "Playback is held until the licence lands",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "cuechange",
+              "description": "Fired on the TextTrack, not on the element",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "loadedmetadata",
+              "description": "Duration and track list are known",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "loadeddata",
+              "description": "First frame is decoded and ready to render",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "canplay",
+              "description": "Enough data buffered to begin playback",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "durationchange",
+              "description": "Duration became known, or was corrected mid-playback",
+              "type": {
+                "text": "CustomEvent<number (seconds)>"
+              }
+            },
+            {
+              "name": "play",
+              "description": "Playback started",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "playing",
+              "description": "Playback actually resumed (after a stall or start)",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "waiting",
+              "description": "Playback stalled waiting for data",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "pause",
+              "description": "Playback paused",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "seeking",
+              "description": "A seek started",
+              "type": {
+                "text": "CustomEvent<number (target time)>"
+              }
+            },
+            {
+              "name": "seeked",
+              "description": "The seek completed",
+              "type": {
+                "text": "CustomEvent<number (landed time)>"
+              }
+            },
+            {
+              "name": "progress",
+              "description": "Fetching advanced the buffered end",
+              "type": {
+                "text": "CustomEvent<number (buffered end, seconds)>"
+              }
+            },
+            {
+              "name": "canplaythrough",
+              "description": "Buffer reached the end of the media. Unlike <video>, this is not an estimate — it fires only when the rest is genuinely buffered, at most once per source",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "stalled",
+              "description": "No data arrived for ~3s while fetching",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "emptied",
+              "description": "Previous media torn down; a new load is starting",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "resize",
+              "description": "Intrinsic video size changed (i.e. a quality switch)",
+              "type": {
+                "text": "CustomEvent<{ width: number, height: number }>"
+              }
+            },
+            {
+              "name": "ended",
+              "description": "Playback reached the end",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "timeupdate",
+              "description": "Current time advanced (fires repeatedly)",
+              "type": {
+                "text": "CustomEvent<number (current time)>"
+              }
+            },
+            {
+              "name": "error",
+              "description": "Internal player error surfaced to the DOM",
+              "type": {
+                "text": "CustomEvent<Error>"
+              }
+            },
+            {
+              "name": "errordisplay",
+              "description": "An error screen went up, with the wording on it. Unlike error, whose payload is the raw Error, this is what the viewer is shown — and it also covers the format/codec failures that raise no runtime error. See Customizing the Error Screen",
+              "type": {
+                "text": "CustomEvent<{ title, message, canRetry, canTrySoftware }>"
+              }
+            },
+            {
+              "name": "statechange",
+              "description": "Underlying MoviPlayer state transitioned",
+              "type": {
+                "text": "CustomEvent<PlayerState>"
+              }
+            },
+            {
+              "name": "volumechange",
+              "description": "Volume or mute toggled (UI, hotkey, or property)",
+              "type": {
+                "text": "CustomEvent<{ volume: number, muted: boolean }>"
+              }
+            },
+            {
+              "name": "ratechange",
+              "description": "Playback speed changed",
+              "type": {
+                "text": "CustomEvent<{ playbackRate: number }>"
+              }
+            },
+            {
+              "name": "titlechange",
+              "description": "null }",
+              "type": {
+                "text": "CustomEvent<{ title: string \\>"
+              }
+            },
+            {
+              "name": "audiotrackchange",
+              "description": "Active audio track switched",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "subtitletrackchange",
+              "description": "Active subtitle track switched",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "trackschange",
+              "description": "Available tracks list updated",
+              "type": {
+                "text": "CustomEvent<Track[]>"
+              }
+            },
+            {
+              "name": "fullscreenchange",
+              "description": "Player entered/exited fullscreen",
+              "type": {
+                "text": "CustomEvent<{ fullscreen: boolean }>"
+              }
+            },
+            {
+              "name": "movi-fullscreen-request",
+              "description": "Cancelable — fires before requestFullscreen(). preventDefault() blocks it so a host can take over via setHostFullscreen()",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "pipchange",
+              "description": "Picture-in-Picture window opened/closed",
+              "type": {
+                "text": "CustomEvent<{ pip: boolean }>"
+              }
+            },
+            {
+              "name": "enterpictureinpicture",
+              "description": "HTMLVideoElement alias, fired alongside pipchange",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "leavepictureinpicture",
+              "description": "HTMLVideoElement alias, fired alongside pipchange",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "qualitychange",
+              "description": "Active video quality / track switched. The shape depends on what moved it: a pick from the track menu carries trackId (with height and auto), a ladder switch carries src and height, a switch landing carries height and auto, and a hand-picked rung that switches nothing (the one Auto was already on) still reports height with auto: false. An Auto/ABR move carries auto: true. A host persisting a deliberate choice should ignore auto === true; one prefetching the next video should read height from any of them and treat its absence as \"unchanged\"",
+              "type": {
+                "text": "CustomEvent<{ trackId } or { src, height, … } or { height, auto }>"
+              }
+            },
+            {
+              "name": "subtitledelaychange",
+              "description": "Subtitle offset changed via property/attribute",
+              "type": {
+                "text": "CustomEvent<{ subtitleDelay: number }>"
+              }
+            },
+            {
+              "name": "playlistchange",
+              "description": "The queue was replaced (see playlist)",
+              "type": {
+                "text": "CustomEvent<{ items: MoviPlaylistItem[] }>"
+              }
+            },
+            {
+              "name": "itemchange",
+              "description": "Cancelable — the queue moved to another item and is about to load it. preventDefault() takes back the load, not the move, so a host whose sources are <source>/<track> children (or whose items are routes) can own what plays. See Queues the host loads",
+              "type": {
+                "text": "CustomEvent<{ index, previousIndex, item }>"
+              }
+            },
+            {
+              "name": "playlistend",
+              "description": "The last item ended with nothing after it. Fires whether or not autoadvance is on",
+              "type": {
+                "text": "CustomEvent<{ index: number }>"
+              }
+            },
+            {
+              "name": "loopchange",
+              "description": "Loop switched or changed kind — mode is off, one (the item) or all (the queue); see loop",
+              "type": {
+                "text": "CustomEvent<{ enabled: boolean, mode: string }>"
+              }
+            },
+            {
+              "name": "loop",
+              "description": "The item started over on a seamless loop; count is which turn this is, from 1",
+              "type": {
+                "text": "CustomEvent<{ count: number }>"
+              }
+            },
+            {
+              "name": "shufflechange",
+              "description": "Shuffle switched on or off (see shuffle); a fresh order is already drawn",
+              "type": {
+                "text": "CustomEvent<{ enabled: boolean }>"
+              }
+            },
+            {
+              "name": "smoothwarning",
+              "description": "Cancelable — what is loaded is not expected to play smoothly at the current speed; media is video or audio, message is the notice's plain-language { title, body }. preventDefault() keeps the built-in notice down (see smoothwarning). From measurement while playing, detail carries measured: true, plus software: true and a softwareReason when the stutter is the software decoder's (e.g. hardware refused the stream mid-playback); for a link that is too slow, link: true, neededBps and measuredBps",
+              "type": {
+                "text": "CustomEvent<PlaybackAssessment & { media: string, message: object }>"
+              }
+            },
+            {
+              "name": "coverart",
+              "description": "null",
+              "type": {
+                "text": "CustomEvent<ImageBitmap \\>"
+              }
+            },
+            {
+              "name": "preloadcomplete",
+              "description": "Initial preload buffer filled, ready to play",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "linearmode",
+              "description": "Source server ignores Range (200, not 206) — playback is forward-only via a sliding RAM window; hide seek-dependent UI",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "audiotrackchange",
+              "description": "Active audio track switched",
+              "type": {
+                "text": "Event"
+              }
+            },
+            {
+              "name": "audiooutputchange",
+              "description": "null }",
+              "type": {
+                "text": "CustomEvent<{ deviceId: string \\>"
+              }
+            },
+            {
+              "name": "audiostripchange",
+              "description": "Audio-only strip layout entered/left. Reports the windowed layout: a fullscreen trip (where the strip becomes a full-screen view) doesn't fire it",
+              "type": {
+                "text": "CustomEvent<{ strip: boolean }>"
+              }
+            },
+            {
+              "name": "nativefallback",
+              "description": "Source handed to a native <video> (fallback=\"native\")",
+              "type": {
+                "text": "CustomEvent<{ src: string }>"
+              }
+            },
+            {
+              "name": "movi-qoe",
+              "description": "Playback-quality telemetry sample",
+              "type": {
+                "text": "CustomEvent<QoE snapshot>"
+              }
+            },
+            {
+              "name": "filerevoked",
+              "description": "Underlying File handle was revoked by the browser (mobile background / memory pressure). Prompt the user to re-pick.",
+              "type": {
+                "text": "CustomEvent<{ offset, length, reason }>"
+              }
+            }
+          ],
+          "slots": [
+            {
+              "name": "error",
+              "description": "Light-DOM children with slot=\"error\" are drawn instead of the built-in one."
+            },
+            {
+              "name": "spinner",
+              "description": "Light-DOM children with slot=\"spinner\" are drawn instead of the built-in one."
+            }
+          ],
+          "cssParts": [
+            {
+              "name": "aspect-button",
+              "description": "Aspect ratio"
+            },
+            {
+              "name": "audio-button",
+              "description": "Audio track"
+            },
+            {
+              "name": "button",
+              "description": "Every button on the bar, all at once"
+            },
+            {
+              "name": "center-button",
+              "description": "The big centre play / pause"
+            },
+            {
+              "name": "controls",
+              "description": "The whole bottom chrome — bar, progress, tooltip"
+            },
+            {
+              "name": "controls-bar",
+              "description": "The bar itself, inside that container"
+            },
+            {
+              "name": "controls-divider",
+              "description": "The quiet rule in the right-hand capsule"
+            },
+            {
+              "name": "error-button",
+              "description": "Both buttons"
+            },
+            {
+              "name": "error-container",
+              "description": "The centred column"
+            },
+            {
+              "name": "error-exit-fullscreen-button",
+              "description": "\"Exit full screen\" — shown only while the player is fullscreen"
+            },
+            {
+              "name": "error-icon",
+              "description": "Icon tile (its <svg> inherits currentColor)"
+            },
+            {
+              "name": "error-message",
+              "description": "Body text"
+            },
+            {
+              "name": "error-retry-button",
+              "description": "Retry only"
+            },
+            {
+              "name": "error-screen",
+              "description": "The full-bleed backdrop"
+            },
+            {
+              "name": "error-software-button",
+              "description": "\"Try Software Decoding\" only"
+            },
+            {
+              "name": "error-text",
+              "description": "Title + message + buttons wrapper"
+            },
+            {
+              "name": "error-title",
+              "description": "Heading"
+            },
+            {
+              "name": "fullscreen-button",
+              "description": "Fullscreen"
+            },
+            {
+              "name": "hdr-button",
+              "description": "HDR toggle"
+            },
+            {
+              "name": "icon",
+              "description": "Every glyph in the player, all at once — size, colour, transform"
+            },
+            {
+              "name": "loop-button",
+              "description": "Loop"
+            },
+            {
+              "name": "more-button",
+              "description": "The mobile \"more\" tray"
+            },
+            {
+              "name": "next-button",
+              "description": "The queue's two ends"
+            },
+            {
+              "name": "osd",
+              "description": "The volume / speed / seek flash in the middle"
+            },
+            {
+              "name": "pip-button",
+              "description": "Picture-in-picture"
+            },
+            {
+              "name": "play-button",
+              "description": "Play / pause"
+            },
+            {
+              "name": "poster",
+              "description": "The poster image"
+            },
+            {
+              "name": "prev-button",
+              "description": "The queue's two ends"
+            },
+            {
+              "name": "progress",
+              "description": "The seek bar's track"
+            },
+            {
+              "name": "progress-buffer",
+              "description": "The buffered stretch"
+            },
+            {
+              "name": "progress-handle",
+              "description": "The knob"
+            },
+            {
+              "name": "progress-played",
+              "description": "The played stretch"
+            },
+            {
+              "name": "quality-button",
+              "description": "Quality"
+            },
+            {
+              "name": "seek-backward-button",
+              "description": "The ±10s pair"
+            },
+            {
+              "name": "seek-forward-button",
+              "description": "The ±10s pair"
+            },
+            {
+              "name": "settings-button",
+              "description": "The gear"
+            },
+            {
+              "name": "speed-button",
+              "description": "Playback speed"
+            },
+            {
+              "name": "spinner",
+              "description": "The loading ring's box — where it sits, not what it draws"
+            },
+            {
+              "name": "stableaudio-button",
+              "description": "Stable volume"
+            },
+            {
+              "name": "subtitle",
+              "description": "Each caption line"
+            },
+            {
+              "name": "subtitle-area",
+              "description": "The region the captions are laid out in"
+            },
+            {
+              "name": "subtitles-button",
+              "description": "Subtitles / captions"
+            },
+            {
+              "name": "time",
+              "description": "Current time / duration"
+            },
+            {
+              "name": "title-bar",
+              "description": "The title strip along the top"
+            },
+            {
+              "name": "volume-button",
+              "description": "Mute / unmute"
+            }
+          ],
+          "cssProperties": [
+            {
+              "name": "--movi-chrome-inset",
+              "description": "MoviPlayer theme variable.\n\nDefault: `20px`"
+            },
+            {
+              "name": "--movi-title-font",
+              "description": "MoviPlayer theme variable.\n\nDefault: `clamp(16px, 4vw, 20px)`"
+            },
+            {
+              "name": "--movi-title-line",
+              "description": "MoviPlayer theme variable.\n\nDefault: `calc(var(--movi-title-font) * 1.4)`"
+            },
+            {
+              "name": "--movi-title-pad-top",
+              "description": "MoviPlayer theme variable.\n\nDefault: `16px`"
+            },
+            {
+              "name": "--movi-primary",
+              "description": "MoviPlayer theme variable.\n\nDefault: `#7c75ff`"
+            },
+            {
+              "name": "--movi-brand-fill",
+              "description": "MoviPlayer theme variable.\n\nDefault: `linear-gradient(110deg, #674cff, #3c6df5)`"
+            },
+            {
+              "name": "--movi-primary-light",
+              "description": "MoviPlayer theme variable.\n\nDefault: `color-mix(in srgb, var(--movi-primary) 70%, white)`"
+            },
+            {
+              "name": "--movi-primary-dark",
+              "description": "MoviPlayer theme variable.\n\nDefault: `color-mix(in srgb, var(--movi-primary) 70%, black)`"
+            },
+            {
+              "name": "--movi-accent",
+              "description": "MoviPlayer theme variable.\n\nDefault: `#4f86ff`"
+            },
+            {
+              "name": "--movi-accent-light",
+              "description": "MoviPlayer theme variable.\n\nDefault: `color-mix(in srgb, var(--movi-accent) 70%, white)`"
+            },
+            {
+              "name": "--movi-gradient",
+              "description": "MoviPlayer theme variable.\n\nDefault: `var(--movi-primary)`"
+            },
+            {
+              "name": "--movi-glass-bg",
+              "description": "MoviPlayer theme variable.\n\nDefault: `rgba(0, 0, 0, 0.92)`"
+            },
+            {
+              "name": "--movi-glass-border",
+              "description": "MoviPlayer theme variable.\n\nDefault: `rgba(255, 255, 255, 0.1)`"
+            },
+            {
+              "name": "--movi-osd-bg",
+              "description": "MoviPlayer theme variable.\n\nDefault: `rgba(0, 0, 0, 0.55)`"
+            },
+            {
+              "name": "--movi-osd-bg-strong",
+              "description": "MoviPlayer theme variable.\n\nDefault: `rgba(0, 0, 0, 0.78)`"
+            },
+            {
+              "name": "--movi-glass-blur",
+              "description": "MoviPlayer theme variable.\n\nDefault: `20px`"
+            },
+            {
+              "name": "--movi-radius-surface",
+              "description": "MoviPlayer theme variable.\n\nDefault: `10px`"
+            },
+            {
+              "name": "--movi-radius-row",
+              "description": "MoviPlayer theme variable.\n\nDefault: `7px`"
+            },
+            {
+              "name": "--movi-radius-panel",
+              "description": "MoviPlayer theme variable.\n\nDefault: `10px`"
+            },
+            {
+              "name": "--movi-radius-control",
+              "description": "MoviPlayer theme variable.\n\nDefault: `8px`"
+            },
+            {
+              "name": "--movi-radius-tile",
+              "description": "MoviPlayer theme variable.\n\nDefault: `6px`"
+            },
+            {
+              "name": "--movi-radius-badge",
+              "description": "MoviPlayer theme variable.\n\nDefault: `4px`"
+            },
+            {
+              "name": "--movi-radius-badge-sm",
+              "description": "MoviPlayer theme variable.\n\nDefault: `3px`"
+            },
+            {
+              "name": "--movi-radius-subtitle",
+              "description": "MoviPlayer theme variable.\n\nDefault: `4px`"
+            },
+            {
+              "name": "--movi-radius-scrollbar",
+              "description": "MoviPlayer theme variable.\n\nDefault: `3px`"
+            },
+            {
+              "name": "--movi-radius-osd",
+              "description": "MoviPlayer theme variable.\n\nDefault: `var(--movi-radius-surface)`"
+            },
+            {
+              "name": "--movi-preview-radius",
+              "description": "MoviPlayer theme variable.\n\nDefault: `var(--movi-radius-surface)`"
+            },
+            {
+              "name": "--movi-preview-img-radius",
+              "description": "MoviPlayer theme variable.\n\nDefault: `var(--movi-radius-surface)`"
+            },
+            {
+              "name": "--movi-preview-caption-bg",
+              "description": "MoviPlayer theme variable.\n\nDefault: `var(--movi-osd-bg)`"
+            },
+            {
+              "name": "--movi-controls-color",
+              "description": "MoviPlayer theme variable.\n\nDefault: `#FFFFFF`"
+            },
+            {
+              "name": "--movi-chrome-fg",
+              "description": "MoviPlayer theme variable.\n\nDefault: `#ffffff`"
+            },
+            {
+              "name": "--movi-controls-group-bg",
+              "description": "MoviPlayer theme variable.\n\nDefault: `rgba(255, 255, 255, 0.025)`"
+            },
+            {
+              "name": "--movi-chrome-bg",
+              "description": "MoviPlayer theme variable.\n\nDefault: `rgba(0, 0, 0, 0.92)`"
+            },
+            {
+              "name": "--movi-chrome-border",
+              "description": "MoviPlayer theme variable.\n\nDefault: `rgba(255, 255, 255, 0.1)`"
+            },
+            {
+              "name": "--movi-text-secondary",
+              "description": "MoviPlayer theme variable.\n\nDefault: `rgba(255, 255, 255, 0.7)`"
+            },
+            {
+              "name": "--movi-text-tertiary",
+              "description": "MoviPlayer theme variable.\n\nDefault: `rgba(255, 255, 255, 0.5)`"
+            },
+            {
+              "name": "--movi-bar-bg",
+              "description": "MoviPlayer theme variable.\n\nDefault: `linear-gradient(to top, rgba(0, 0, 0, 0.8) 0%, rgba(0, 0, 0, 0.4) 45%, transparent 100%)`"
+            },
+            {
+              "name": "--movi-overlay-bg",
+              "description": "MoviPlayer theme variable.\n\nDefault: `linear-gradient(to top, rgba(0, 0, 0, 0.35) 0%, transparent 12%)`"
+            },
+            {
+              "name": "--movi-progress-bg",
+              "description": "MoviPlayer theme variable.\n\nDefault: `rgba(255, 255, 255, 0.15)`"
+            },
+            {
+              "name": "--movi-controls-height",
+              "description": "MoviPlayer theme variable.\n\nDefault: `72px`"
+            },
+            {
+              "name": "--movi-controls-height-mobile",
+              "description": "MoviPlayer theme variable.\n\nDefault: `64px`"
+            },
+            {
+              "name": "--movi-progress-height",
+              "description": "MoviPlayer theme variable.\n\nDefault: `4px`"
+            },
+            {
+              "name": "--movi-progress-height-hover",
+              "description": "MoviPlayer theme variable.\n\nDefault: `8px`"
+            },
+            {
+              "name": "--movi-btn-size",
+              "description": "MoviPlayer theme variable.\n\nDefault: `44px`"
+            },
+            {
+              "name": "--movi-btn-size-mobile",
+              "description": "MoviPlayer theme variable.\n\nDefault: `40px`"
+            },
+            {
+              "name": "--movi-shadow-sm",
+              "description": "MoviPlayer theme variable.\n\nDefault: `0 2px 8px rgba(0, 0, 0, 0.3)`"
+            },
+            {
+              "name": "--movi-shadow-md",
+              "description": "MoviPlayer theme variable.\n\nDefault: `0 8px 32px rgba(0, 0, 0, 0.4)`"
+            },
+            {
+              "name": "--movi-shadow-lg",
+              "description": "MoviPlayer theme variable.\n\nDefault: `0 16px 64px rgba(0, 0, 0, 0.5)`"
+            },
+            {
+              "name": "--movi-shadow-glow",
+              "description": "MoviPlayer theme variable.\n\nDefault: `0 0 20px color-mix(in srgb, var(--movi-primary) 0.3)`"
+            },
+            {
+              "name": "--movi-transition-fast",
+              "description": "MoviPlayer theme variable.\n\nDefault: `0.15s cubic-bezier(0.4, 0, 0.2, 1)`"
+            },
+            {
+              "name": "--movi-transition-normal",
+              "description": "MoviPlayer theme variable.\n\nDefault: `0.25s cubic-bezier(0.4, 0, 0.2, 1)`"
+            },
+            {
+              "name": "--movi-transition-slow",
+              "description": "MoviPlayer theme variable.\n\nDefault: `0.4s cubic-bezier(0.4, 0, 0.2, 1)`"
+            },
+            {
+              "name": "--movi-transition-bounce",
+              "description": "MoviPlayer theme variable.\n\nDefault: `0.5s cubic-bezier(0.34, 1.56, 0.64, 1)`"
+            },
+            {
+              "name": "--movi-motion-out",
+              "description": "MoviPlayer theme variable.\n\nDefault: `cubic-bezier(0.16, 1, 0.3, 1)`"
+            },
+            {
+              "name": "--movi-motion-spring",
+              "description": "MoviPlayer theme variable.\n\nDefault: `cubic-bezier(0.2, 0.9, 0.25, 1.18)`"
+            },
+            {
+              "name": "--movi-divider-color",
+              "description": "MoviPlayer theme variable.\n\nDefault: `rgba(255, 255, 255, 0.14)`"
+            },
+            {
+              "name": "--movi-divider-width",
+              "description": "MoviPlayer theme variable.\n\nDefault: `1px`"
+            },
+            {
+              "name": "--movi-divider-height",
+              "description": "MoviPlayer theme variable.\n\nDefault: `20px`"
+            },
+            {
+              "name": "--movi-divider-gap",
+              "description": "MoviPlayer theme variable.\n\nDefault: `4px`"
+            },
+            {
+              "name": "--movi-controls-bg",
+              "description": "MoviPlayer theme variable.\n\nDefault: `var(--movi-glass-bg)`"
+            },
+            {
+              "name": "--movi-progress-color",
+              "description": "MoviPlayer theme variable.\n\nDefault: `var(--movi-primary)`"
+            },
+            {
+              "name": "--movi-progress-buffer-color",
+              "description": "MoviPlayer theme variable.\n\nDefault: `rgba(255, 255, 255, 0.2)`"
+            },
+            {
+              "name": "--movi-progress-hover-color",
+              "description": "MoviPlayer theme variable.\n\nDefault: `rgba(255, 255, 255, 0.45)`"
+            },
+            {
+              "name": "--movi-btn-hover-bg",
+              "description": "MoviPlayer theme variable.\n\nDefault: `rgba(255, 255, 255, 0.1)`"
+            },
+            {
+              "name": "--movi-menu-tx",
+              "description": "MoviPlayer theme variable.\n\nDefault: `0px`"
+            },
+            {
+              "name": "--movi-menu-ty",
+              "description": "MoviPlayer theme variable.\n\nDefault: `8px`"
+            },
+            {
+              "name": "--movi-menu-scale",
+              "description": "MoviPlayer theme variable.\n\nDefault: `0.97`"
+            },
+            {
+              "name": "--movi-sub-cust-rail",
+              "description": "MoviPlayer theme variable.\n\nDefault: `rgba(0, 0, 0, 0.35)`"
+            },
+            {
+              "name": "--movi-strip-cap-h",
+              "description": "MoviPlayer theme variable.\n\nDefault: `calc(2 * var(--movi-strip-cap-line) + 10px)`"
+            }
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "kind": "custom-element-definition",
+          "name": "movi-player",
+          "declaration": {
+            "name": "MoviElement",
+            "module": "dist/element.js"
+          }
+        }
+      ]
+    }
+  ]
+}

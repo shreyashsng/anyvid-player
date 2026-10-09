@@ -1,0 +1,180 @@
+import { defineConfig } from "vitepress";
+
+// https://vitepress.dev/reference/site-config
+export default defineConfig({
+  base: "/movi-player/",
+  // Emit extension-less internal links (GitHub Pages serves foo.html for /foo).
+  // Keeps every URL consistent with the canonical (which never has .html).
+  cleanUrls: true,
+  title: "Movi-Player",
+  // What this SITE is, not what the product is — the product line belongs on
+  // the landing page, and Google, finding nothing here that described
+  // documentation, went and scraped a paragraph out of the demo instead.
+  description:
+    "Documentation for movi-player: install it, the element and its attributes, events, the JavaScript API, and the React, Vue and Svelte wrappers.",
+
+  head: [
+    ["link", { rel: "icon", type: "image/svg+xml", href: "/movi-player/favicon.svg" }],
+    // A multiple of 48px square, which is what Google asks for when it picks a
+    // site's search-result icon — the smaller sizes below are for tabs.
+    ["link", { rel: "icon", type: "image/png", sizes: "192x192", href: "/movi-player/favicon-192x192.png" }],
+    ["link", { rel: "icon", type: "image/png", sizes: "32x32", href: "/movi-player/favicon-32x32.png" }],
+    ["link", { rel: "icon", type: "image/png", sizes: "16x16", href: "/movi-player/favicon-16x16.png" }],
+    ["link", { rel: "icon", type: "image/x-icon", href: "/movi-player/favicon.ico" }],
+    ["link", { rel: "apple-touch-icon", sizes: "180x180", href: "/movi-player/apple-touch-icon.png" }],
+    ["script", { src: "/movi-player/coi-serviceworker.js" }],
+    ["meta", { name: "theme-color", content: "#646cff" }],
+    ["meta", { property: "og:type", content: "website" }],
+    [
+      "meta",
+      { property: "og:title", content: "Movi-Player - Modern Video Player" },
+    ],
+    [
+      "meta",
+      {
+        property: "og:description",
+        content: "WebCodecs + FFmpeg WASM powered video player for the web",
+      },
+    ],
+  ],
+
+  // Canonicalize every page to its moviplayer.com/docs URL. The docs are served
+  // at moviplayer.com/docs (apex subdirectory — best for SEO: authority stays on
+  // one domain) via a reverse proxy of this GitHub Pages build. Pointing the
+  // canonical at moviplayer.com/docs makes the github.io copy de-duplicate to
+  // the apex, so search engines index/credit a single URL.
+  transformPageData(pageData) {
+    const rel = pageData.relativePath
+      .replace(/(^|\/)index\.md$/, "$1")
+      .replace(/\.md$/, "");
+    pageData.frontmatter.head ??= [];
+    pageData.frontmatter.head.push([
+      "link",
+      { rel: "canonical", href: `https://moviplayer.com/docs/${rel}` },
+    ]);
+  },
+
+  themeConfig: {
+    // https://vitepress.dev/reference/default-theme-config
+    logo: "/logo.svg",
+
+    nav: [
+      { text: "Home", link: "/" },
+      { text: "🚀 Getting Started", link: "/guide/getting-started" },
+      { text: "🔌 API", link: "/api/player" },
+      { text: "🎮 Examples", link: "https://moviplayer.com/examples" },
+      {
+        text: "v0.4.1",
+        items: [
+          {
+            text: "Versions",
+            items: [
+              { text: "v0.4.1 (Latest)", link: "/changelog#0-4-1" },
+              { text: "v0.4.0", link: "/changelog#0-4-0" },
+              { text: "v0.3.5", link: "/changelog#0-3-5" },
+              { text: "v0.3.4", link: "/changelog#0-3-4" },
+              { text: "v0.3.1", link: "/changelog#0-3-1" },
+              { text: "v0.3.0", link: "/changelog#0-3-0" },
+              { text: "v0.2.3", link: "/changelog#0-2-3" },
+              { text: "v0.2.2", link: "/changelog#0-2-2" },
+              { text: "v0.2.1", link: "/changelog#0-2-1" },
+              { text: "v0.2.0", link: "/changelog#0-2-0" },
+            ],
+          },
+          {
+            text: "Resources",
+            items: [
+              { text: "Changelog", link: "/changelog" },
+              { text: "Contributing", link: "/contributing" },
+            ],
+          },
+        ],
+      },
+    ],
+
+    sidebar: {
+      "/guide/": [
+        {
+          text: "Introduction",
+          items: [
+            {
+              text: "What is Movi-Player?",
+              link: "/guide/what-is-movi-player",
+            },
+            { text: "Getting Started", link: "/guide/getting-started" },
+            { text: "Why Movi-Player?", link: "/guide/why-movi-player" },
+            { text: "Use Cases", link: "/guide/use-cases" },
+          ],
+        },
+        {
+          text: "Core Concepts",
+          items: [
+            { text: "Architecture", link: "/guide/architecture" },
+            { text: "Modules", link: "/guide/modules" },
+            { text: "HDR Support", link: "/guide/hdr-support" },
+            { text: "Standards Compliance", link: "/guide/standards" },
+          ],
+        },
+        {
+          text: "Usage",
+          items: [
+            { text: "Custom Element", link: "/guide/custom-element" },
+            { text: "Programmatic API", link: "/guide/programmatic-api" },
+            { text: "Local File Playback", link: "/guide/local-files" },
+            { text: "Multi-Track Support", link: "/guide/multi-track" },
+          ],
+        },
+        {
+          // One page per thing developers search for — each links back to
+          // the live demos on moviplayer.com/examples.
+          text: "Recipes",
+          items: [
+            { text: "HLS Player (.m3u8)", link: "/guide/hls-player" },
+            { text: "MPEG-DASH Player (.mpd)", link: "/guide/dash-player" },
+            { text: "Play MKV in the Browser", link: "/guide/play-mkv-in-browser" },
+            { text: "HEVC / H.265 in the Browser", link: "/guide/hevc-h265-in-browser" },
+            { text: "React, Vue & Svelte", link: "/guide/react-vue-svelte-video-player" },
+          ],
+        },
+        {
+          text: "Advanced",
+          items: [
+            { text: "Performance", link: "/guide/performance" },
+            { text: "Troubleshooting", link: "/guide/troubleshooting" },
+          ],
+        },
+      ],
+      "/api/": [
+        {
+          text: "API Reference",
+          items: [
+            { text: "MoviPlayer", link: "/api/player" },
+            { text: "Demuxer", link: "/api/demuxer" },
+            { text: "MoviElement", link: "/api/element" },
+            { text: "Sources", link: "/api/sources" },
+            { text: "Events", link: "/api/events" },
+          ],
+        },
+      ],
+    },
+
+    socialLinks: [
+      { icon: "github", link: "https://github.com/MrUjjwalG/movi-player" },
+      { icon: "npm", link: "https://www.npmjs.com/package/movi-player" },
+    ],
+
+    footer: {
+      message: 'Released under the Apache-2.0 License. <a href="/movi-player/privacy-policy">Privacy Policy</a> · <a href="/movi-player/terms-of-service">Terms of Service</a>',
+      copyright: "Copyright © 2024-present Ujjawal Kashyap",
+    },
+
+    search: {
+      provider: "local",
+    },
+
+    editLink: {
+      pattern: "https://github.com/MrUjjwalG/movi-player/edit/main/docs/:path",
+      text: "Edit this page on GitHub",
+    },
+  },
+});

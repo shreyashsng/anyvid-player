@@ -1,0 +1,77 @@
+/**
+ * Preload bridge. Exposes a tiny, audited surface to the renderer — no Node,
+ * no ipcRenderer leakage. Runs with context isolation on.
+ */
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
+
+contextBridge.exposeInMainWorld("movi", {
+  platform: process.platform,
+
+  // True when this window was launched with a file to play ("open with", a
+  // double-clicked file, a file argument). Read before the first paint, so it
+  // is synchronous on purpose.
+  pendingOpen: (() => {
+    try {
+      return ipcRenderer.sendSync("boot:pending-open") === true;
+    } catch {
+      return false;
+    }
+  })(),
+
+  // Tell main we've wired our listeners and the player is defined; flushes
+  // any files the OS asked us to open before we were ready.
+  ready: () => ipcRenderer.send("renderer-ready"),
+
+  // Open the native file dialog. Result comes back asynchronously via onLoadPaths.
+  openDialog: () => ipcRenderer.invoke("dialog:open"),
+
+  // Files to load (from dialog or OS "open with").
+  onLoadPaths: (cb) => ipcRenderer.on("load-paths", (_e, paths) => cb(paths)),
+
+  // Menu "Open URL…" asks the renderer to focus its URL field.
+  onFocusUrl: (cb) => ipcRenderer.on("focus-url", () => cb()),
+
+  // The window is closing: take the sound down a slope first. Main holds the
+  // close open for the length of the fade and no longer — see main.js.
+  onFadeOut: (cb) => ipcRenderer.on("app:fade-out", (_e, ms) => cb(ms)),
+
+  // OS window fullscreen toggled (used to drop the macOS titlebar inset AND to
+  // sync the player's own fullscreen UI — see renderer).
+  onFullscreen: (cb) => ipcRenderer.on("window-fullscreen", (_e, on) => cb(on)),
+
+  // Toggle the OS window fullscreen. The player's own fullscreen button / F key /
+  // double-click routes here so it drives the SAME OS fullscreen as the macOS
+  // green button, instead of a separate HTML element-fullscreen the two paths
+  // would fight over.
+  toggleFullscreen: () => ipcRenderer.send("window:toggle-fullscreen"),
+
+  // Size the window around the picture (QuickTime-style) — see main.js.
+  fitVideo: (width, height) => ipcRenderer.send("window:fit-video", { width, height }),
+  releaseVideo: () => ipcRenderer.send("window:release-video"),
+  playlistPanel: (open, width) => ipcRenderer.send("window:playlist-panel", { open, width }),
+
+  // Recent files (path-based opens only).
+  getRecents: () => ipcRenderer.invoke("recents:get"),
+  openRecent: (p) => ipcRenderer.send("recents:open", p),
+  clearRecents: () => ipcRenderer.invoke("recents:clear"),
+
+  // Resolve a dropped File to its absolute path (Electron's File.path successor).
+  pathForFile: (file) => {
+    try { return webUtils.getPathForFile(file) || null; } catch { return null; }
+  },
+  // Read the system clipboard (for the "paste link" button). Done in the main
+  // process — the clipboard module isn't available in a sandboxed preload.
+  readClipboard: () => ipcRenderer.invoke("clipboard:read"),
+  // Allow-list paths for the /_local endpoint (e.g. dragged files).
+  grant: (paths) => ipcRenderer.invoke("files:grant", paths),
+
+  // Picture-in-Picture (main window side).
+  pipOpen: (payload) => ipcRenderer.send("pip:open", payload),
+  onPipActive: (cb) => ipcRenderer.on("pip:active", () => cb()),
+  onPipClosed: (cb) => ipcRenderer.on("pip:closed", (_e, state) => cb(state)),
+  // Picture-in-Picture (PiP window side).
+  pipReportState: (src, time, settings) =>
+    ipcRenderer.send("pip:state", { src, time, settings }),
+  onPipLoad: (cb) => ipcRenderer.on("pip:load", (_e, d) => cb(d)),
+  pipClose: () => ipcRenderer.send("pip:close"),
+});

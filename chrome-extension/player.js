@@ -1,0 +1,1715 @@
+// Slim bundle: the FFmpeg engine ships beside it as dist/movi.wasm rather than
+// embedded, which keeps the largest JS file under the 5MB AMO's linter will
+// parse (the full build is 11.8MB and fails Firefox validation outright). Same
+// element, same API. Firefox copies this file verbatim — see firefox-extension/
+// build.sh — so both add-ons load the same bundle.
+import * as Movi from "./dist/element.slim.js";
+
+const params = new URLSearchParams(window.location.search);
+const url = params.get("url");
+
+const overlay = document.getElementById("fileOverlay");
+const dropZone = document.getElementById("dropZone");
+const filePicker = document.getElementById("filePicker");
+const folderPicker = document.getElementById("folderPicker");
+const loadingOverlay = document.getElementById("loadingOverlay");
+// Whether anything has been loaded this session — gates the picker's close
+// button and Escape, so the back arrow can't strand you on an empty picker.
+// Declared up here because loadFile() sets it well above the block that reads it.
+let hasMedia = false;
+const loadingName = document.getElementById("loadingName");
+// The picker's URL tab: focus the link field. Files and Folder are labels
+// around their inputs, so they open the picker by themselves.
+document.getElementById("xtabUrl")?.addEventListener("click", () => {
+  document.getElementById("linkInput")?.focus();
+});
+
+const playlistPanel = document.getElementById("playlistPanel");
+const playlistItemsEl = document.getElementById("playlistItems");
+const playlistCountEl = document.getElementById("playlistCount");
+const playlistTitleEl = document.getElementById("playlistTitle");
+const playlistCloseBtn = document.getElementById("playlistClose");
+const playlistToggleBtn = document.getElementById("playlistToggle");
+const addFilesBtn = document.getElementById("addFilesBtn");
+const addFolderBtn = document.getElementById("addFolderBtn");
+const nextBtn = document.getElementById("nextBtn");
+const shuffleBtn = document.getElementById("shuffleBtn");
+const repeatBtn = document.getElementById("repeatBtn");
+const autoplayBtn = document.getElementById("autoplayBtn");
+const playlistSearchWrap = document.getElementById("playlistSearchWrap");
+const playlistSearch = document.getElementById("playlistSearch");
+const playlistSearchClear = document.getElementById("playlistSearchClear");
+const cacheSizeText = document.getElementById("cacheSizeText");
+const cacheClearBtn = document.getElementById("cacheClearBtn");
+
+let fileAccessEnabled = false;
+try {
+  // Chromium-only API — Firefox has no isAllowedFileSchemeAccess, so the flag
+  // stays false there and the drop handler takes the ordinary in-page path.
+  chrome.extension.isAllowedFileSchemeAccess?.().then((a) => { fileAccessEnabled = !!a; });
+} catch {}
+
+// ─── Loading overlay ──────────────────────────────────────
+function showLoading(name) {
+  if (loadingName) loadingName.textContent = name || "";
+  loadingOverlay.classList.remove("hidden");
+}
+function hideLoading() {
+  loadingOverlay.classList.add("hidden");
+}
+
+// ─── Player wiring ────────────────────────────────────────
+const playerEl = document.getElementById("player");
+let lastProgressWrite = 0;
+customElements.whenDefined("movi-player").then(() => {
+  playerEl.addEventListener("loadeddata", () => {
+    hideLoading();
+    const t = playerEl.title;
+    if (t) document.title = t + " — MoviPlayer";
+  });
+  // Title typically isn't known at loadeddata — MoviElement auto-loads
+  // it from FFmpeg metadata / Content-Disposition / URL filename after
+  // duration becomes available, then fires `titlechange`. Mirror that
+  // into document.title so the browser tab updates whenever the clean
+  // title resolves (or when an integrator sets the attribute later).
+  playerEl.addEventListener("titlechange", (e) => {
+    const t = e?.detail?.title || playerEl.title;
+    if (t) document.title = t + " — MoviPlayer";
+  });
+  // Strip-mode layout: tag both the outer shell (centres the strip in
+  // the viewport, swaps the black panel for a neutral surface) and the
+  // inner .player-main (lets it shrink to the strip's natural width
+  // instead of stretching to fill). The classes are toggled together
+  // so we never have a half-applied state.
+  playerEl.addEventListener("audiostripchange", (e) => {
+    const strip = !!e.detail?.strip;
+    document.querySelector(".player-shell")?.classList.toggle("is-audio-strip", strip);
+    document.querySelector(".player-main")?.classList.toggle("is-audio-strip", strip);
+  });
+  playerEl.addEventListener("ended", () => {
+    // Loop is on → the element replays the current video itself; don't let
+    // playlist auto-advance steal the end event and jump to the next item.
+    if (playerEl.loop) return;
+    if (playlistIndex >= 0) {
+      const f = playlist[playlistIndex];
+      if (f) {
+        const m = fileMeta.get(f) || {};
+        fileMeta.set(f, { ...m, progress: 1 });
+        if (playlistItemEls[playlistIndex]) applyItemProgress(playlistItemEls[playlistIndex], f);
+      }
+    }
+    // No advance here. The element owns it — `autoadvance` follows the toggle
+    // above, and it resolves the next item through the same order and wrap the
+    // panel's Next uses. The load lands back here as `itemchange`.
+  });
+  playerEl.addEventListener("timeupdate", () => {
+    if (playlistIndex < 0) return;
+    const file = playlist[playlistIndex];
+    if (!file) return;
+    const dur = playerEl.duration;
+    const cur = playerEl.currentTime;
+    if (!dur || !isFinite(dur) || !isFinite(cur) || dur <= 0) return;
+    const now = performance.now();
+    if (now - lastProgressWrite < 600) return;
+    lastProgressWrite = now;
+    const p = Math.max(0, Math.min(1, cur / dur));
+    const m = fileMeta.get(file) || {};
+    fileMeta.set(file, { ...m, progress: p });
+    if (playlistItemEls[playlistIndex]) applyItemProgress(playlistItemEls[playlistIndex], file);
+  });
+});
+
+// ─── Helpers ──────────────────────────────────────────────
+// Video + audio extensions. The audio set is what's already decodable by the
+// shipped FFmpeg WASM build (see docker/build-ffmpeg.sh — aac/mp3/opus/vorbis/
+// flac/ac3/eac3/dca/truehd/mlp/pcm + ogg/flac/wav/mp3/aac/ac3/eac3/mov/m4a
+// demuxers). Adding more here without first enabling the corresponding decoder
+// in the build would just produce a "no audio track" error at open time.
+const MEDIA_EXT_RE = /\.(mp4|mkv|webm|mov|avi|ts|m3u8|mpd|flv|m4v|ogv|wmv|m2ts|mts|evo|3gp|mpg|mpeg|mp3|m4a|m4b|aac|flac|wav|wave|ogg|oga|opus|ac3|ec3|eac3|mka|dts)$/i;
+const isVideoFile = (f) =>
+  (f.type && (f.type.startsWith("video/") || f.type.startsWith("audio/"))) ||
+  MEDIA_EXT_RE.test(f.name || "");
+const naturalCompare = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+
+// Sort playlist entries in tree DFS order with folders-first at every depth.
+// Without this, raw-path alpha sort would put a root file like "master.mp4"
+// before a folder file like "Videos/x.mp4" (because "m" < "V" with base
+// sensitivity), but the tree renders folders first — so playlist[0] would
+// not match the file shown at the top of the tree.
+const compareTreeOrder = (a, b) => {
+  const pa = (a.webkitRelativePath || a.name).split("/");
+  const pb = (b.webkitRelativePath || b.name).split("/");
+  for (let i = 0; ; i++) {
+    if (i >= pa.length || i >= pb.length) return pa.length - pb.length;
+    const inFolderA = i < pa.length - 1;
+    const inFolderB = i < pb.length - 1;
+    if (inFolderA !== inFolderB) return inFolderA ? -1 : 1;
+    const c = naturalCompare(pa[i], pb[i]);
+    if (c !== 0) return c;
+  }
+};
+
+const formatSize = (bytes) => {
+  if (!bytes && bytes !== 0) return "";
+  const units = ["B", "KB", "MB", "GB"];
+  let i = 0, n = bytes;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return `${n.toFixed(n < 10 && i > 0 ? 1 : 0)} ${units[i]}`;
+};
+
+const formatDuration = (secs) => {
+  if (!secs || !isFinite(secs) || secs < 0) return "";
+  const s = Math.round(secs);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  const pad = (n) => String(n).padStart(2, "0");
+  return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
+};
+
+const qualityLabel = (h) => {
+  if (!h) return "";
+  if (h >= 2160) return "4K";
+  if (h >= 1440) return "1440p";
+  if (h >= 1080) return "1080p";
+  if (h >= 720) return "720p";
+  if (h >= 480) return "480p";
+  return `${h}p`;
+};
+
+const prettyName = (file) =>
+  (file.name || "").replace(/\.[^.]+$/, "").replace(/[._]+/g, " ").trim() || file.name;
+
+const escapeHtml = (s) =>
+  String(s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
+  );
+
+const resumeKeyForFile = (file) => {
+  const base = (file.name || "").replace(/\.[^.\/]+$/, "");
+  if (!base || !Movi?.MoviElement?.cleanVideoTitle) return "";
+  return `movi-resume:${Movi.MoviElement.cleanVideoTitle(base)}`;
+};
+const getSavedResumeTime = (file) => {
+  const key = resumeKeyForFile(file);
+  if (!key) return 0;
+  try { const v = localStorage.getItem(key); return v ? parseFloat(v) : 0; } catch { return 0; }
+};
+const getItemProgress = (file) => {
+  const meta = fileMeta.get(file);
+  if (typeof meta?.progress === "number" && meta.progress > 0) return meta.progress;
+  const saved = getSavedResumeTime(file);
+  const dur = meta?.duration;
+  if (saved > 0 && dur && dur > 0) return Math.min(1, saved / dur);
+  return 0;
+};
+
+// ─── IndexedDB thumbnail / metadata cache ────────────────
+// Same-machine same-file lookups skip every WASM call (Demuxer +
+// ThumbnailBindings + decode). Key is (name, size, lastModified) — collision-
+// free in practice and survives across sessions, so the panel feels instant
+// after the first load of any folder.
+const CACHE_DB = "movi-player-cache";
+const CACHE_STORE = "thumbnails";
+const CACHE_VERSION = 1;
+let cacheDbPromise = null;
+
+function openCacheDb() {
+  if (cacheDbPromise) return cacheDbPromise;
+  cacheDbPromise = new Promise((resolve, reject) => {
+    const req = indexedDB.open(CACHE_DB, CACHE_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(CACHE_STORE)) {
+        db.createObjectStore(CACHE_STORE, { keyPath: "key" });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  }).catch((err) => {
+    console.warn("[Movi] thumb cache open failed:", err);
+    cacheDbPromise = null;
+    return null;
+  });
+  return cacheDbPromise;
+}
+
+function cacheKey(file) {
+  return `${file.name}::${file.size}::${file.lastModified || 0}`;
+}
+
+async function cacheGet(key) {
+  const db = await openCacheDb();
+  if (!db) return null;
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(CACHE_STORE, "readonly");
+      const req = tx.objectStore(CACHE_STORE).get(key);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    } catch { resolve(null); }
+  });
+}
+
+async function cachePut(entry) {
+  const db = await openCacheDb();
+  if (!db) return;
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(CACHE_STORE, "readwrite");
+      tx.objectStore(CACHE_STORE).put(entry);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+      tx.onabort = () => resolve();
+    } catch { resolve(); }
+  });
+}
+
+async function cacheStats() {
+  const db = await openCacheDb();
+  if (!db) return { count: 0, bytes: 0 };
+  return new Promise((resolve) => {
+    let count = 0;
+    let bytes = 0;
+    try {
+      const tx = db.transaction(CACHE_STORE, "readonly");
+      const cur = tx.objectStore(CACHE_STORE).openCursor();
+      cur.onsuccess = () => {
+        const c = cur.result;
+        if (!c) { resolve({ count, bytes }); return; }
+        count++;
+        if (c.value?.thumbBlob) bytes += c.value.thumbBlob.size || 0;
+        c.continue();
+      };
+      cur.onerror = () => resolve({ count, bytes });
+    } catch { resolve({ count, bytes }); }
+  });
+}
+
+async function cacheClear() {
+  const db = await openCacheDb();
+  if (!db) return;
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(CACHE_STORE, "readwrite");
+      tx.objectStore(CACHE_STORE).clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    } catch { resolve(); }
+  });
+}
+
+// ─── Playlist state ───────────────────────────────────────
+let playlist = [];
+let playlistIndex = -1;
+let currentFile = null;
+const playlistItemEls = [];
+
+// Shuffle, repeat and auto-advance are the ELEMENT's, not this page's. The
+// queue is handed over in syncPlayerQueue(), which means the element already
+// knows the order, the wrap and what comes next — and its own context menu
+// offers the same two toggles. Keeping a second copy here is how the panel
+// button and the menu row end up disagreeing, so there is only one copy and
+// this is the view of it: writes go to the element, and the element's
+// `shufflechange` / `loopchange` paint the buttons back.
+let shuffleEnabled = false;
+let repeatMode = "off"; // "off" | "all" | "one"
+let autoplayEnabled = true;
+
+function paintShuffle(on) {
+  shuffleEnabled = !!on;
+  shuffleBtn.setAttribute("aria-pressed", shuffleEnabled ? "true" : "false");
+  shuffleBtn.title = shuffleEnabled ? "Shuffle on" : "Shuffle";
+}
+function setShuffle(on) {
+  paintShuffle(on);
+  try { playerEl.shuffle = shuffleEnabled; } catch {}
+  try { localStorage.setItem("movi-shuffle", shuffleEnabled ? "1" : "0"); } catch {}
+}
+
+function paintRepeat(mode) {
+  repeatMode = mode === "all" || mode === "one" ? mode : "off";
+  repeatBtn.dataset.mode = repeatMode;
+  repeatBtn.setAttribute("aria-pressed", repeatMode === "off" ? "false" : "true");
+  repeatBtn.title =
+    repeatMode === "all" ? "Repeat playlist" : repeatMode === "one" ? "Repeat one" : "Repeat off";
+  // Which arrow shows is `data-mode`'s job in CSS — `hidden` on an <svg> is
+  // not honoured, the UA rule behind it only reaches HTML elements.
+}
+function setRepeat(mode) {
+  paintRepeat(mode);
+  // "all" is what makes the queue join up: the element wraps past the last
+  // item, and its auto-advance turns on with it.
+  try { playerEl.loopMode = repeatMode; } catch {}
+  try { localStorage.setItem("movi-repeat", repeatMode); } catch {}
+}
+
+// Next: explicit user action — plays the next item even when the autoplay
+// toggle is off. The element resolves it, so it follows the shuffle run and
+// wraps when repeat-all is on; the load comes back through `itemchange`.
+nextBtn.addEventListener("click", () => {
+  if (!playlist.length || playlistIndex < 0) return;
+  try { playerEl.next(); } catch {}
+});
+shuffleBtn.addEventListener("click", () => setShuffle(!shuffleEnabled));
+// Off → all → one → off, the order every player uses.
+repeatBtn.addEventListener("click", () => {
+  setRepeat(repeatMode === "off" ? "all" : repeatMode === "all" ? "one" : "off");
+});
+// The element's context menu can toggle both as well; follow it.
+playerEl.addEventListener("shufflechange", (e) => {
+  paintShuffle(!!e.detail?.enabled);
+  try { localStorage.setItem("movi-shuffle", shuffleEnabled ? "1" : "0"); } catch {}
+});
+playerEl.addEventListener("loopchange", (e) => {
+  paintRepeat(e.detail?.mode || (e.detail?.enabled ? "one" : "off"));
+  try { localStorage.setItem("movi-repeat", repeatMode); } catch {}
+});
+
+// Autoplay: when on, the next item plays automatically once the current one
+// ends. Defaults to on so existing auto-advance behaviour is preserved. The
+// advance itself is the element's — `autoadvance` is the attribute for it —
+// so there is no second timer here racing its one.
+function setAutoplay(on) {
+  autoplayEnabled = on;
+  autoplayBtn.setAttribute("aria-checked", on ? "true" : "false");
+  // Keep the element attribute in sync so its own autoplay path doesn't
+  // start playback when the toggle is off.
+  if (on) {
+    playerEl.setAttribute("autoplay", "");
+    playerEl.setAttribute("autoadvance", "");
+  } else {
+    playerEl.removeAttribute("autoplay");
+    playerEl.removeAttribute("autoadvance");
+  }
+  try { localStorage.setItem("movi-autoplay", on ? "1" : "0"); } catch {}
+}
+autoplayBtn.addEventListener("click", () => setAutoplay(!autoplayEnabled));
+try { setAutoplay(localStorage.getItem("movi-autoplay") !== "0"); } catch { setAutoplay(true); }
+try { if (localStorage.getItem("movi-shuffle") === "1") setShuffle(true); else paintShuffle(false); } catch { paintShuffle(false); }
+try { setRepeat(localStorage.getItem("movi-repeat") || "off"); } catch { paintRepeat("off"); }
+const fileMeta = new Map();
+const metaQueue = [];
+let metaProcessing = false;
+let thumbWasmPromise = null;
+
+function loadFile(file) {
+  hasMedia = true;
+  // Opening one file leaves the queue behind; without this the bar keeps a
+  // Next button pointing into a playlist that is no longer on screen.
+  if (!playlist.length) { try { playerEl.playlist = []; } catch {} }
+  overlay.classList.add("hidden");
+  document.title = file.name + " — MoviPlayer";
+  if (playerEl.setFile) playerEl.setFile(file);
+  else playerEl.src = file;
+  // Opening a single file always autoplays — the playlist toggle only governs
+  // playlist click + auto-advance, not a direct file open.
+  playerEl.play?.().catch(() => {});
+}
+
+function showPlaylist() {
+  playlistPanel.hidden = false;
+  playlistToggleBtn.classList.remove("visible");
+}
+function hidePlaylist() {
+  playlistPanel.hidden = true;
+  if (playlist.length) playlistToggleBtn.classList.add("visible");
+}
+playlistCloseBtn.addEventListener("click", hidePlaylist);
+playlistToggleBtn.addEventListener("click", showPlaylist);
+
+// ─── Search ───────────────────────────────────────────────
+function applySearchFilter() {
+  const q = (playlistSearch.value || "").trim().toLowerCase();
+  playlistSearchWrap.classList.toggle("has-query", !!q);
+
+  if (!q) {
+    // Restore: show everything, re-apply user collapse state.
+    playlistItemsEl.querySelectorAll(".playlist-item").forEach((el) => { el.style.display = ""; });
+    playlistItemsEl.querySelectorAll(".playlist-folder").forEach((folderEl) => {
+      folderEl.style.display = "";
+      const wrap = folderEl.nextElementSibling;
+      if (!wrap) return;
+      wrap.style.display = "";
+      const path = folderEl.dataset.path;
+      if (collapsedFolders.has(path)) {
+        folderEl.classList.add("collapsed");
+        wrap.classList.add("hidden");
+      } else {
+        folderEl.classList.remove("collapsed");
+        wrap.classList.remove("hidden");
+      }
+    });
+    return;
+  }
+
+  // Hide non-matching files.
+  playlistItemEls.forEach((el, i) => {
+    if (!el) return;
+    const name = playlist[i]?.name?.toLowerCase() || "";
+    el.style.display = name.includes(q) ? "" : "none";
+  });
+
+  // Folder visibility: shown (and force-expanded) iff at least one descendant
+  // file matches. Walking the DOM bottom-up keeps the parent-of-parent case
+  // working without recursion.
+  const folders = Array.from(playlistItemsEl.querySelectorAll(".playlist-folder")).reverse();
+  for (const folderEl of folders) {
+    const wrap = folderEl.nextElementSibling;
+    if (!wrap) continue;
+    let anyVisible = false;
+    wrap.querySelectorAll(":scope > .playlist-item").forEach((it) => {
+      if (it.style.display !== "none") anyVisible = true;
+    });
+    wrap.querySelectorAll(":scope > .playlist-folder").forEach((sub) => {
+      if (sub.style.display !== "none") anyVisible = true;
+    });
+    if (anyVisible) {
+      folderEl.style.display = "";
+      wrap.style.display = "";
+      folderEl.classList.remove("collapsed");
+      wrap.classList.remove("hidden");
+    } else {
+      folderEl.style.display = "none";
+      wrap.style.display = "none";
+    }
+  }
+}
+
+playlistSearch.addEventListener("input", applySearchFilter);
+playlistSearchClear.addEventListener("click", () => {
+  playlistSearch.value = "";
+  applySearchFilter();
+  playlistSearch.focus();
+});
+// Esc inside the search input clears it instead of leaving the field.
+playlistSearch.addEventListener("keydown", (e) => {
+  if (e.code === "Escape" && playlistSearch.value) {
+    e.preventDefault();
+    e.stopPropagation();
+    playlistSearch.value = "";
+    applySearchFilter();
+  }
+});
+
+// Focus the panel on any mousedown inside it so keyboard nav becomes active
+// immediately. Buttons / inputs still receive their own clicks because focus
+// transitions land where the browser would naturally put them.
+playlistPanel.addEventListener("mousedown", (e) => {
+  if (playlistPanel.contains(document.activeElement)) return;
+  if (e.target === playlistPanel) {
+    e.preventDefault();
+    playlistPanel.focus();
+  } else {
+    queueMicrotask(() => {
+      if (!playlistPanel.contains(document.activeElement)) playlistPanel.focus();
+    });
+  }
+});
+
+// Up / Down / Enter while playlist is focused — handled here, NOT forwarded
+// to the player. Other keys still fall through to the document handler so
+// space, F, M etc. continue to control playback regardless of focus.
+playlistPanel.addEventListener("keydown", (e) => {
+  const tag = e.target.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "BUTTON") return;
+  if (e.code === "ArrowDown") {
+    e.preventDefault();
+    e.stopPropagation();
+    moveHighlight(1);
+  } else if (e.code === "ArrowUp") {
+    e.preventDefault();
+    e.stopPropagation();
+    moveHighlight(-1);
+  } else if (e.code === "Enter") {
+    e.preventDefault();
+    e.stopPropagation();
+    if (highlightedIndex >= 0) playPlaylistItem(highlightedIndex);
+  } else if (e.code === "Escape") {
+    e.preventDefault();
+    e.stopPropagation();
+    setHighlightedIndex(-1);
+    playerEl.focus();
+  }
+});
+
+// ─── The player's own queue ───────────────────────────────
+// The element has a queue of its own, and a queue of src-less items is one it
+// never loads: it owns only the control surface — the Next/Previous buttons in
+// the bar, Shift+N / Shift+P, and the skip pair on the lock screen and the
+// system media keys — and announces every move as a cancelable `itemchange`.
+//
+// That is exactly what this page needs. Its items are local Files, and
+// playPlaylistItem() does more than write a src (poster, autoplay rules,
+// thumbnail metadata, progress), so the loading stays here. Handing over the
+// list buys the buttons and the OS controls without moving any of that.
+function syncPlayerQueue() {
+  try {
+    playerEl.playlist = playlist.map((f, i) => ({ id: String(i), title: f.name }));
+    playerEl.playlistIndex = playlistIndex;
+  } catch {
+    // An older bundled element without the queue — the panel still works.
+  }
+}
+
+playerEl.addEventListener("itemchange", (e) => {
+  // Nothing is written by the element; this page loads the item.
+  e.preventDefault();
+  const { index } = e.detail || {};
+  if (typeof index !== "number") return;
+  // The index is already the answer: the element stepped through its own play
+  // order, so the shuffle run and the repeat-all wrap are baked in and the
+  // bar's Next, the panel's Next and auto-advance can't disagree.
+  if (index >= 0 && index < playlist.length) {
+    playPlaylistItem(index, { forcePlay: true });
+  }
+});
+
+function setPlaylist(files, { rootName } = {}) {
+  const videos = files.filter(isVideoFile);
+  if (!videos.length) return;
+  videos.sort(compareTreeOrder);
+  // Release any prior thumbnail blob URLs before replacing the playlist.
+  fileMeta.forEach((m) => { if (m?.thumbUrl) URL.revokeObjectURL(m.thumbUrl); });
+  fileMeta.clear();
+  metaQueue.length = 0;
+
+  playlist = videos;
+  playlistIndex = -1;
+  playlistTitleEl.textContent = rootName || (videos.length === 1 ? videos[0].name : "Playlist");
+  showPlaylist();
+  renderPlaylist();
+  // Drop any stale search query left over from the previous playlist so the
+  // user sees the new files in full.
+  if (playlistSearch.value) {
+    playlistSearch.value = "";
+    applySearchFilter();
+  }
+  // A new queue draws a fresh order; setPlaylistItems does it inside.
+  syncPlayerQueue();
+  playPlaylistItem(0);
+}
+
+function appendToPlaylist(files) {
+  const videos = files.filter(isVideoFile);
+  if (!videos.length) return;
+  const key = (f) => (f.webkitRelativePath || f.name) + ":" + f.size;
+  const existing = new Set(playlist.map(key));
+  const fresh = videos.filter((f) => !existing.has(key(f)));
+  if (!fresh.length) return;
+  const wasEmpty = playlist.length === 0;
+  playlist = playlist.concat(fresh);
+  playlist.sort(compareTreeOrder);
+  playlistIndex = currentFile ? playlist.indexOf(currentFile) : -1;
+  if (wasEmpty) {
+    playlistTitleEl.textContent = playlist.length === 1 ? playlist[0].name : "Playlist";
+    showPlaylist();
+  }
+  renderPlaylist();
+  // A new queue draws a fresh order; setPlaylistItems does it inside.
+  syncPlayerQueue();
+  if (wasEmpty) playPlaylistItem(0);
+}
+
+// Keyboard "selection cursor" for playlist nav — independent of which file
+// is currently playing (`playlistIndex`). Up/Down moves this; Enter plays it.
+let highlightedIndex = -1;
+
+function setHighlightedIndex(i) {
+  highlightedIndex = i;
+  playlistItemEls.forEach((el, j) => {
+    if (!el) return;
+    el.classList.toggle("highlighted", j === i);
+  });
+  const el = playlistItemEls[i];
+  if (!el) return;
+  const c = playlistItemsEl;
+  const elTop = el.offsetTop - c.offsetTop;
+  const elBottom = elTop + el.offsetHeight;
+  if (elTop < c.scrollTop) c.scrollTo({ top: elTop, behavior: "smooth" });
+  else if (elBottom > c.scrollTop + c.clientHeight) {
+    c.scrollTo({ top: elBottom - c.clientHeight, behavior: "smooth" });
+  }
+}
+
+function visibleItemIndices() {
+  const out = [];
+  for (let i = 0; i < playlistItemEls.length; i++) {
+    const el = playlistItemEls[i];
+    // offsetParent is null when the element (or any ancestor) is display:none —
+    // i.e. the item lives inside a collapsed folder.
+    if (el && el.offsetParent !== null) out.push(i);
+  }
+  return out;
+}
+
+function moveHighlight(delta) {
+  const visible = visibleItemIndices();
+  if (!visible.length) return;
+  let cursor = visible.indexOf(highlightedIndex);
+  if (cursor === -1) {
+    cursor = visible.indexOf(playlistIndex);
+    if (cursor === -1) cursor = 0;
+  } else {
+    cursor = Math.max(0, Math.min(visible.length - 1, cursor + delta));
+  }
+  setHighlightedIndex(visible[cursor]);
+}
+
+function playPlaylistItem(i, { forcePlay = false } = {}) {
+  if (i < 0 || i >= playlist.length) return;
+  const file = playlist[i];
+  if (!file) return;
+  playlistIndex = i;
+  currentFile = file;
+  hasMedia = true;
+  overlay.classList.add("hidden");
+  document.title = file.name + " — MoviPlayer";
+  // Drop poster so previous item's poster doesn't bleed in
+  playerEl.removeAttribute("poster");
+  playerEl.removeAttribute("postertime");
+  playerEl.setAttribute("postertime", "10%");
+  if (playerEl.setFile) playerEl.setFile(file);
+  else playerEl.src = file;
+  // AFTER the source, not before. The items handed to the element are src-less,
+  // so a source it did not write itself is one from outside the queue and it
+  // resets the index to -1 — which is exactly right, and exactly what would
+  // undo this write if it came first. Writing the index says where the queue
+  // IS without announcing a move, so it cannot bounce back as an itemchange.
+  try { playerEl.playlistIndex = i; } catch {}
+  if (autoplayEnabled || forcePlay) playerEl.play?.().catch(() => {});
+  updateActiveItem(i);
+}
+
+// ─── Item rendering ───────────────────────────────────────
+const applyItemMeta = (li, file) => {
+  const meta = fileMeta.get(file);
+  const img = li.querySelector(".playlist-thumb-img");
+  const durEl = li.querySelector(".playlist-thumb-duration");
+  const metaEl = li.querySelector(".playlist-item-meta");
+  const thumbEl = li.querySelector(".playlist-thumb");
+
+  if (meta?.thumbUrl) {
+    if (img.src !== meta.thumbUrl) img.src = meta.thumbUrl;
+    img.hidden = false;
+    thumbEl.classList.remove("no-thumb");
+  } else if (meta?.completed) {
+    // Generation finished without producing a thumb (decode failed, non-video
+    // file, etc.) — kill the shimmer and show a static fallback icon.
+    thumbEl.classList.add("no-thumb");
+  }
+  if (meta?.duration) {
+    durEl.textContent = formatDuration(meta.duration);
+    durEl.hidden = false;
+  }
+
+  let hdr = thumbEl.querySelector(".playlist-thumb-hdr");
+  if (meta?.isHDR) {
+    if (!hdr) {
+      hdr = document.createElement("span");
+      hdr.className = "playlist-thumb-hdr";
+      hdr.textContent = "HDR";
+      thumbEl.appendChild(hdr);
+    }
+  } else if (hdr) hdr.remove();
+
+  let fps = thumbEl.querySelector(".playlist-thumb-fps");
+  if (meta?.isHighFps && meta?.frameRate) {
+    if (!fps) {
+      fps = document.createElement("span");
+      fps.className = "playlist-thumb-fps";
+      thumbEl.appendChild(fps);
+    }
+    fps.textContent = `${Math.round(meta.frameRate)} FPS`;
+  } else if (fps) fps.remove();
+
+  applyItemProgress(li, file);
+
+  const parts = [];
+  if (meta?.height) parts.push(`<span class="meta-res">${qualityLabel(meta.height)}</span>`);
+  if (meta?.codec) parts.push(escapeHtml(String(meta.codec).toUpperCase()));
+  parts.push(escapeHtml(formatSize(file.size)));
+  metaEl.innerHTML = parts.filter(Boolean).join(" · ");
+};
+
+function applyItemProgress(li, file) {
+  const progressEl = li.querySelector(".playlist-thumb-progress");
+  const barEl = li.querySelector(".playlist-thumb-progress-bar");
+  if (!progressEl || !barEl) return;
+  const p = getItemProgress(file);
+  if (p > 0.005) {
+    barEl.style.width = `${Math.min(100, p * 100)}%`;
+    progressEl.hidden = false;
+  } else {
+    progressEl.hidden = true;
+  }
+}
+
+function createItemEl(file, i) {
+  const li = document.createElement("div");
+  li.className = "playlist-item";
+  li.dataset.index = String(i);
+  li.title = file.webkitRelativePath || file.name;
+  li.innerHTML = `
+    <span class="playlist-thumb">
+      <img class="playlist-thumb-img" alt="" loading="lazy" hidden />
+      <span class="playlist-thumb-fallback" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+        </svg>
+      </span>
+      <span class="playlist-thumb-playing" aria-hidden="true">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      </span>
+      <span class="playlist-thumb-duration" hidden></span>
+      <span class="playlist-thumb-progress" hidden>
+        <span class="playlist-thumb-progress-bar"></span>
+      </span>
+    </span>
+    <span class="playlist-item-body">
+      <span class="playlist-item-name"></span>
+      <span class="playlist-item-meta"></span>
+    </span>
+  `;
+  li.querySelector(".playlist-item-name").textContent = prettyName(file);
+  li.addEventListener("click", () => {
+    playPlaylistItem(i);
+    // Keep keyboard focus on the panel so user can immediately Up/Down to
+    // the next item — without this, click moves focus to body and arrow
+    // keys would scrub the player instead of navigating the playlist.
+    playlistPanel.focus({ preventScroll: true });
+    setHighlightedIndex(i);
+  });
+  applyItemMeta(li, file);
+  return li;
+}
+
+const metaObserver =
+  "IntersectionObserver" in window
+    ? new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            const i = Number(entry.target.dataset.index);
+            const file = playlist[i];
+            if (file) enqueueMeta(file);
+            metaObserver.unobserve(entry.target);
+          }
+        },
+        { root: playlistItemsEl, rootMargin: "200px 0px" }
+      )
+    : null;
+
+// ─── Tree (folder hierarchy) ─────────────────────────────
+const collapsedFolders = new Set();
+
+function buildTree(files) {
+  const root = { folders: new Map(), files: [], depth: 0, path: "" };
+  files.forEach((file, i) => {
+    const rel = file.webkitRelativePath || file.name;
+    const parts = rel.split("/");
+    parts.pop(); // strip filename
+    let node = root;
+    for (const part of parts) {
+      if (!node.folders.has(part)) {
+        node.folders.set(part, {
+          folders: new Map(),
+          files: [],
+          depth: node.depth + 1,
+          path: node.path ? node.path + "/" + part : part,
+        });
+      }
+      node = node.folders.get(part);
+    }
+    node.files.push({ file, index: i });
+  });
+
+  // If everything sits inside a single root folder, promote that folder up.
+  // The panel header already shows its name, so a duplicate top-level row
+  // would feel redundant.
+  if (root.files.length === 0 && root.folders.size === 1) {
+    const only = Array.from(root.folders.values())[0];
+    const rebase = (n, depth, prefix) => {
+      n.depth = depth;
+      n.path = prefix;
+      n.folders.forEach((c, name) => rebase(c, depth + 1, prefix ? prefix + "/" + name : name));
+    };
+    rebase(only, 0, "");
+    return only;
+  }
+  return root;
+}
+
+function countFiles(node) {
+  let n = node.files.length;
+  for (const c of node.folders.values()) n += countFiles(c);
+  return n;
+}
+
+function renderNode(node, container) {
+  // Folders alphabetically first, then files alphabetically — standard
+  // Explorer/Finder convention. The `playlist` array is sorted with
+  // compareTreeOrder so playlist[0] is the file at the top of this tree.
+  const folderEntries = Array.from(node.folders.entries()).sort(([a], [b]) => naturalCompare(a, b));
+  for (const [name, child] of folderEntries) {
+    const folderEl = document.createElement("div");
+    folderEl.className = "playlist-folder";
+    folderEl.dataset.path = child.path;
+    const isCollapsed = collapsedFolders.has(child.path);
+    if (isCollapsed) folderEl.classList.add("collapsed");
+    folderEl.innerHTML = `
+      <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="6 9 12 15 18 9"/>
+      </svg>
+      <svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+      </svg>
+      <span class="playlist-folder-name"></span>
+      <span class="playlist-folder-count"></span>
+    `;
+    folderEl.querySelector(".playlist-folder-name").textContent = name;
+    folderEl.querySelector(".playlist-folder-count").textContent = String(countFiles(child));
+    container.appendChild(folderEl);
+
+    const childWrap = document.createElement("div");
+    childWrap.className = "playlist-folder-children";
+    if (isCollapsed) childWrap.classList.add("hidden");
+    container.appendChild(childWrap);
+
+    folderEl.addEventListener("click", () => {
+      const collapsed = folderEl.classList.toggle("collapsed");
+      childWrap.classList.toggle("hidden", collapsed);
+      if (collapsed) collapsedFolders.add(child.path);
+      else collapsedFolders.delete(child.path);
+    });
+
+    renderNode(child, childWrap);
+  }
+
+  const fileEntries = [...node.files].sort((a, b) => naturalCompare(a.file.name, b.file.name));
+  for (const { file, index } of fileEntries) {
+    const li = createItemEl(file, index);
+    if (index === playlistIndex) li.classList.add("active");
+    container.appendChild(li);
+    playlistItemEls[index] = li;
+    metaObserver?.observe(li);
+  }
+}
+
+function renderPlaylist() {
+  playlistItemsEl.innerHTML = "";
+  playlistItemEls.length = 0;
+  playlistCountEl.textContent = String(playlist.length);
+  const tree = buildTree(playlist);
+  renderNode(tree, playlistItemsEl);
+}
+
+function updateActiveItem(newIdx) {
+  playlistItemEls.forEach((el, j) => {
+    if (!el) return;
+    el.classList.toggle("active", j === newIdx);
+  });
+  const el = playlistItemEls[newIdx];
+  if (!el) return;
+  const c = playlistItemsEl;
+  const elTop = el.offsetTop - c.offsetTop;
+  const elBottom = elTop + el.offsetHeight;
+  if (elTop < c.scrollTop) c.scrollTo({ top: elTop, behavior: "smooth" });
+  else if (elBottom > c.scrollTop + c.clientHeight) c.scrollTo({ top: elBottom - c.clientHeight, behavior: "smooth" });
+}
+
+// ─── Thumbnail / metadata generation ──────────────────────
+function enqueueMeta(file) {
+  if (!file) return;
+  const state = fileMeta.get(file);
+  if (state?.completed || state?.queued) return;
+  fileMeta.set(file, { ...(state || {}), queued: true });
+  metaQueue.push(file);
+  pumpMetaQueue();
+}
+
+async function pumpMetaQueue() {
+  if (metaProcessing) return;
+  metaProcessing = true;
+  try {
+    while (metaQueue.length) {
+      const file = metaQueue.shift();
+      try {
+        await generateMetaAndThumb(file);
+      } catch (err) {
+        console.warn("[Movi] thumb/meta failed for", file.name, err);
+        fileMeta.set(file, { ...(fileMeta.get(file) || {}), completed: true, failed: true });
+      }
+      const idx = playlist.indexOf(file);
+      if (idx >= 0 && playlistItemEls[idx]) applyItemMeta(playlistItemEls[idx], file);
+    }
+  } finally {
+    metaProcessing = false;
+  }
+}
+
+async function generateMetaAndThumb(file) {
+  // ── Cache check first — most loads after the very first run never need
+  // to touch WASM at all, so this is what keeps the panel responsive.
+  const cacheK = cacheKey(file);
+  const cached = await cacheGet(cacheK);
+  if (cached) {
+    const next = {
+      duration: cached.duration,
+      width: cached.width,
+      height: cached.height,
+      codec: cached.codec,
+      isHDR: cached.isHDR,
+      frameRate: cached.frameRate,
+      isHighFps: cached.isHighFps,
+      thumbUrl: cached.thumbBlob ? URL.createObjectURL(cached.thumbBlob) : undefined,
+      completed: true,
+    };
+    fileMeta.set(file, { ...(fileMeta.get(file) || {}), ...next });
+    return;
+  }
+
+  if (!Movi?.ThumbnailBindings || !Movi?.FileSource || !Movi?.loadWasmModuleNew) {
+    fileMeta.set(file, { ...(fileMeta.get(file) || {}), completed: true });
+    return;
+  }
+  if (!thumbWasmPromise) {
+    thumbWasmPromise = Movi.loadWasmModuleNew().catch((err) => {
+      console.warn("[Movi] thumbnail wasm load failed:", err);
+      thumbWasmPromise = null;
+      return null;
+    });
+  }
+  const wasm = await thumbWasmPromise;
+  if (!wasm) {
+    fileMeta.set(file, { ...(fileMeta.get(file) || {}), completed: true });
+    return;
+  }
+
+  // Read display-matrix rotation off a Demuxer pass. ThumbnailBindings'
+  // streamInfo.rotation is unreliable for many MKV/MP4 files — some report
+  // 0 even when the file declares a 90/180/270 matrix — so the thumb would
+  // come out facing the wrong way. The Demuxer + IndexedDB cache below mean
+  // this expensive call only happens the first time a given file is seen.
+  let trackRotation = 0;
+  if (Movi?.Demuxer) {
+    try {
+      const dm = new Movi.Demuxer(new Movi.FileSource(file), undefined, true);
+      await dm.open();
+      const vt = dm.getVideoTracks?.()[0];
+      if (vt) trackRotation = vt.rotation || 0;
+      try { dm.close(); } catch {}
+    } catch {}
+  }
+
+  const bindings = new Movi.ThumbnailBindings(wasm);
+  try {
+    bindings.setDataSource(new Movi.FileSource(file));
+    await bindings.create(file.size);
+    if (!(await bindings.open())) {
+      fileMeta.set(file, { ...(fileMeta.get(file) || {}), completed: true });
+      return;
+    }
+    const streamInfo = bindings.getStreamInfo?.() || null;
+    if (!streamInfo) {
+      fileMeta.set(file, { ...(fileMeta.get(file) || {}), completed: true });
+      return;
+    }
+
+    const sw = streamInfo.width || 0;
+    const sh = streamInfo.height || 0;
+    const rawRotation = trackRotation || streamInfo.rotation || 0;
+    const rotation = ((rawRotation % 360) + 360) % 360;
+    const isRotated = rotation === 90 || rotation === 270;
+    const duration = streamInfo.duration || 0;
+    const codec = streamInfo.codecName || "";
+    const isHDR =
+      streamInfo.colorTransfer === "smpte2084" ||
+      streamInfo.colorTransfer === "arib-std-b67" ||
+      streamInfo.colorPrimaries === "bt2020";
+    const frameRate = streamInfo.frameRate || 0;
+    const isHighFps = frameRate >= 50;
+    const displayW = isRotated ? sh : sw;
+    const displayH = isRotated ? sw : sh;
+
+    fileMeta.set(file, {
+      ...(fileMeta.get(file) || {}),
+      duration, width: displayW, height: displayH, codec, isHDR,
+      frameRate, isHighFps,
+    });
+    const idx = playlist.indexOf(file);
+    if (idx >= 0 && playlistItemEls[idx]) applyItemMeta(playlistItemEls[idx], file);
+
+    if (!sw || !sh || !duration) {
+      fileMeta.set(file, { ...(fileMeta.get(file) || {}), completed: true });
+      return;
+    }
+
+    const time = Math.max(0, duration * 0.1);
+    const pktSize = await bindings.readKeyframe(time);
+    if (!pktSize || pktSize <= 0) {
+      fileMeta.set(file, { ...(fileMeta.get(file) || {}), completed: true });
+      return;
+    }
+    const rgba = bindings.decodeCurrentPacket(sw, sh);
+    if (!rgba) {
+      fileMeta.set(file, { ...(fileMeta.get(file) || {}), completed: true });
+      return;
+    }
+
+    const THUMB_W = 320, THUMB_H = 180;
+    const srcAR = displayW / displayH;
+    const dstAR = THUMB_W / THUMB_H;
+    let dw, dh;
+    if (srcAR > dstAR) { dw = THUMB_W; dh = THUMB_W / srcAR; }
+    else { dh = THUMB_H; dw = THUMB_H * srcAR; }
+
+    const src = document.createElement("canvas");
+    src.width = sw; src.height = sh;
+    const sctx = src.getContext("2d");
+    const clamped = new Uint8ClampedArray(rgba.buffer, rgba.byteOffset, rgba.byteLength);
+    sctx.putImageData(new ImageData(clamped, sw, sh), 0, 0);
+
+    const out = document.createElement("canvas");
+    out.width = THUMB_W; out.height = THUMB_H;
+    const octx = out.getContext("2d");
+    octx.fillStyle = "#000";
+    octx.fillRect(0, 0, THUMB_W, THUMB_H);
+    octx.save();
+    octx.translate(THUMB_W / 2, THUMB_H / 2);
+    if (rotation) octx.rotate((rotation * Math.PI) / 180);
+    const drawW = isRotated ? dh : dw;
+    const drawH = isRotated ? dw : dh;
+    octx.drawImage(src, -drawW / 2, -drawH / 2, drawW, drawH);
+    octx.restore();
+
+    const blob = await new Promise((r) => out.toBlob(r, "image/jpeg", 0.75));
+    if (blob) {
+      const prev = fileMeta.get(file);
+      if (prev?.thumbUrl) URL.revokeObjectURL(prev.thumbUrl);
+      fileMeta.set(file, { ...(prev || {}), thumbUrl: URL.createObjectURL(blob), completed: true });
+      cachePut({
+        key: cacheK,
+        name: file.name,
+        size: file.size,
+        lastModified: file.lastModified || 0,
+        duration, width: displayW, height: displayH, codec, isHDR, frameRate, isHighFps,
+        thumbBlob: blob,
+        createdAt: Date.now(),
+      });
+    } else {
+      fileMeta.set(file, { ...(fileMeta.get(file) || {}), completed: true });
+      // Cache the meta-only result too so we don't redo the WASM dance next
+      // time for files where thumb decode failed but metadata was readable.
+      cachePut({
+        key: cacheK,
+        name: file.name,
+        size: file.size,
+        lastModified: file.lastModified || 0,
+        duration, width: displayW, height: displayH, codec, isHDR, frameRate, isHighFps,
+        thumbBlob: null,
+        createdAt: Date.now(),
+      });
+    }
+    try { bindings.clearBuffer?.(); } catch {}
+  } finally {
+    try { bindings.destroy?.(); } catch {}
+  }
+}
+
+// ─── Folder picker (File System Access API → input fallback) ─
+async function collectFilesFromDirHandle(dirHandle, path = "") {
+  const out = [];
+  for await (const entry of dirHandle.values()) {
+    if (entry.kind === "directory") {
+      const sub = await collectFilesFromDirHandle(entry, path + entry.name + "/");
+      out.push(...sub);
+    } else {
+      try {
+        const file = await entry.getFile();
+        try {
+          Object.defineProperty(file, "webkitRelativePath", {
+            value: path + entry.name,
+            configurable: true,
+          });
+        } catch {}
+        out.push(file);
+      } catch {}
+    }
+  }
+  return out;
+}
+
+async function pickFolder({ append = false } = {}) {
+  if ("showDirectoryPicker" in window) {
+    try {
+      const dir = await window.showDirectoryPicker();
+      const files = await collectFilesFromDirHandle(dir, dir.name + "/");
+      if (append) appendToPlaylist(files);
+      else setPlaylist(files, { rootName: dir.name });
+      return;
+    } catch (err) {
+      if (err && err.name === "AbortError") return;
+    }
+  }
+  folderPicker.dataset.append = append ? "1" : "";
+  folderPicker.click();
+}
+
+// ─── ChromeOS Files app ───────────────────────────────────
+// Registered as a file handler in the manifest, so double-clicking a video in
+// the ChromeOS Files app opens it here. The files arrive through the Launch
+// Handler API rather than a picker: FileSystemFileHandles, which have to be
+// resolved to Files before the player can take them.
+//
+// The consumer is set synchronously, at module evaluation. A launch that
+// arrives before one is registered is queued, but only until the page decides
+// it is not interested — registering after an await risks dropping it.
+//
+// Feature-detected because this page also ships to Firefox, and to Chrome off
+// ChromeOS, where launchQueue does not exist.
+if (
+  "launchQueue" in window &&
+  typeof LaunchParams !== "undefined" &&
+  "files" in LaunchParams.prototype
+) {
+  window.launchQueue.setConsumer(async (params) => {
+    if (!params.files?.length) return;
+    const files = [];
+    for (const handle of params.files) {
+      try {
+        files.push(await handle.getFile());
+      } catch {
+        // A handle whose permission has lapsed or whose file has moved —
+        // skip it rather than failing the whole launch.
+      }
+    }
+    if (!files.length) return;
+    // Files-app multi-select becomes a playlist, the way picking several in
+    // the page's own dialog already does.
+    if (files.length === 1) loadFile(files[0]);
+    else setPlaylist(files);
+  });
+}
+
+// ─── Back to the picker ───────────────────────────────────
+// The title bar's arrow (titlemode="back") only fires an event; this is what
+// it means here. Anything already playing keeps playing behind the picker —
+// the close button and Escape put you straight back to it, so the arrow is
+// never a one-way door.
+// Whether the video was playing when the picker went up, so closing it puts
+// playback back the way it was found. Without this, stepping out and back in
+// left a paused video and no sign of why.
+let wasPlayingBeforePicker = false;
+
+function showPicker() {
+  overlay.classList.remove("hidden");
+  overlay.classList.toggle("dismissible", hasMedia);
+  // `paused` is play INTENT, not pipeline state — a buffering video still reads
+  // as playing, which is the answer this wants.
+  try { wasPlayingBeforePicker = !playerEl.paused; } catch { wasPlayingBeforePicker = false; }
+  try { playerEl.pause?.(); } catch {}
+  // A reload of ?url=... would replay the video the viewer just stepped out
+  // of, so the address bar goes back to the bare page too.
+  if (window.location.search) {
+    history.replaceState(null, "", window.location.pathname);
+  }
+  document.title = "MoviPlayer";
+}
+
+function hidePicker() {
+  if (!hasMedia) return;
+  overlay.classList.add("hidden");
+  // Resume only if it was running when we left. A video the viewer had
+  // deliberately paused stays paused — coming back is not a request to start
+  // it.
+  if (wasPlayingBeforePicker) playerEl.play?.().catch(() => {});
+}
+
+playerEl.addEventListener("back", showPicker);
+document.getElementById("overlayClose")?.addEventListener("click", hidePicker);
+
+// ─── URL / single-file load ───────────────────────────────
+function filenameFromPath(path) {
+  try {
+    return decodeURIComponent(path.split("/").pop().split("?")[0].split("#")[0]) || "video";
+  } catch { return "video"; }
+}
+function showFileAccessError(fileUrl) {
+  overlay.classList.remove("hidden");
+  const dropText = overlay.querySelector(".drop-text");
+  if (dropText) {
+    // The same page ships to Chrome and Firefox, and each grants file:// access
+    // from a different screen — send the user to the one their browser has.
+    const isChromium = (() => {
+      try {
+        return chrome.runtime.getURL("").startsWith("chrome-extension://");
+      } catch {
+        return true;
+      }
+    })();
+    const how = isChromium
+      ? `open <b style="color:#A78BFA">chrome://extensions</b>,
+        find <b style="color:#A78BFA">MoviPlayer</b>, click <b style="color:#A78BFA">Details</b>,
+        and enable <b style="color:#A78BFA">"Allow access to file URLs"</b>`
+      : `open <b style="color:#A78BFA">about:addons</b>,
+        select <b style="color:#A78BFA">MoviPlayer</b>, open the
+        <b style="color:#A78BFA">Permissions</b> tab, and allow
+        <b style="color:#A78BFA">"Access your data for sites in the file:// domain"</b>`;
+    dropText.innerHTML = `
+      <h2 style="color:#ef4444">File access not enabled</h2>
+      <p style="color:#888;max-width:420px;margin:8px auto 0;line-height:1.5">
+        To play local files, ${how}. Then reopen this video.
+      </p>
+      <p style="color:#555;margin-top:12px;font-size:11px;word-break:break-all">${escapeHtml(fileUrl)}</p>
+    `;
+  }
+}
+async function loadFileUrl(fileUrl) {
+  const name = filenameFromPath(fileUrl);
+  showLoading(name);
+  try {
+    const response = await fetch(fileUrl);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const blob = await response.blob();
+    const file = new File([blob], name, { type: blob.type || "video/mp4" });
+    loadFile(file);
+  } catch (err) {
+    console.error("[Movi] failed to load file URL:", err);
+    hideLoading();
+    showFileAccessError(fileUrl);
+  }
+}
+
+if (url) {
+  if (url.startsWith("file://")) {
+    const name = filenameFromPath(url).replace(/\.[^.]+$/, "");
+    document.title = (name || "Video") + " — MoviPlayer";
+    hasMedia = true;
+    loadFileUrl(url);
+  } else {
+    let name = decodeURIComponent(url.split("/").pop().split("?")[0]);
+    name = name.replace(/\.[^.]+$/, "");
+    if (!name || /^(index|master|playlist)$/i.test(name)) {
+      try {
+        const segments = new URL(url).pathname.split("/").filter((s) => s && !s.includes("."));
+        if (segments.length > 0) name = decodeURIComponent(segments[segments.length - 1]).replace(/[-_]/g, " ");
+      } catch {}
+    }
+    document.title = (name || "Video") + " — MoviPlayer";
+    hasMedia = true;
+    customElements.whenDefined("movi-player").then(() => { playerEl.src = url; });
+  }
+} else {
+  overlay.classList.remove("hidden");
+}
+
+// ─── Picker handlers ──────────────────────────────────────
+filePicker.addEventListener("change", (e) => {
+  const files = Array.from(e.target.files || []);
+  const append = filePicker.dataset.append === "1";
+  filePicker.dataset.append = "";
+  filePicker.value = "";
+  if (!files.length) return;
+  if (files.length === 1 && !append && !playlist.length) loadFile(files[0]);
+  else if (append) appendToPlaylist(files);
+  else setPlaylist(files);
+});
+
+folderPicker.addEventListener("change", (e) => {
+  const files = Array.from(e.target.files || []);
+  const append = folderPicker.dataset.append === "1";
+  folderPicker.dataset.append = "";
+  folderPicker.value = "";
+  if (!files.length) return;
+  let rootName = "Folder";
+  const rel = files[0].webkitRelativePath;
+  if (rel) rootName = rel.split("/")[0] || rootName;
+  if (append) appendToPlaylist(files);
+  else setPlaylist(files, { rootName });
+});
+
+addFilesBtn.addEventListener("click", () => {
+  filePicker.dataset.append = "1";
+  filePicker.click();
+});
+addFolderBtn.addEventListener("click", () => pickFolder({ append: true }));
+
+document.querySelectorAll('.browse-btn.secondary').forEach((btn) => {
+  btn.addEventListener("click", (e) => {
+    if (!("showDirectoryPicker" in window)) return; // fall back to <input>
+    e.preventDefault();
+    pickFolder();
+  });
+});
+
+// ─── Drag and drop ────────────────────────────────────────
+document.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  if (!playlist.length) overlay.classList.remove("hidden");
+  dropZone.classList.add("dragover");
+});
+document.addEventListener("dragleave", (e) => {
+  if (!e.relatedTarget || e.relatedTarget === document.documentElement) {
+    dropZone.classList.remove("dragover");
+  }
+});
+
+function walkEntry(entry, path, out) {
+  return new Promise((resolve) => {
+    if (entry.isFile) {
+      entry.file((file) => {
+        // Only tag a relative path when the file came from inside a dropped
+        // folder (path is non-empty). A bare top-level file must keep an empty
+        // webkitRelativePath so the drop handler loads it directly instead of
+        // mistaking it for a folder member and building a 1-item playlist.
+        if (path) {
+          try {
+            Object.defineProperty(file, "webkitRelativePath", {
+              value: path + entry.name,
+              configurable: true,
+            });
+          } catch {}
+        }
+        out.push(file);
+        resolve();
+      }, () => resolve());
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      const readBatch = () => {
+        reader.readEntries(async (entries) => {
+          if (!entries.length) return resolve();
+          await Promise.all(entries.map((e) => walkEntry(e, path + entry.name + "/", out)));
+          readBatch();
+        }, () => resolve());
+      };
+      readBatch();
+    } else resolve();
+  });
+}
+async function filesFromDataTransfer(dt) {
+  const items = dt.items ? Array.from(dt.items) : [];
+  const supportsEntries = items.some((it) => typeof it.webkitGetAsEntry === "function");
+  if (supportsEntries) {
+    const out = [];
+    const tasks = [];
+    for (const it of items) {
+      const entry = it.webkitGetAsEntry?.();
+      if (!entry) continue;
+      tasks.push(walkEntry(entry, "", out));
+    }
+    await Promise.all(tasks);
+    if (out.length) return out;
+  }
+  return Array.from(dt.files || []);
+}
+
+document.addEventListener("drop", async (e) => {
+  dropZone.classList.remove("dragover");
+  if (
+    fileAccessEnabled &&
+    !playlist.length &&
+    !overlay.classList.contains("hidden") &&
+    e.dataTransfer.files.length === 1 &&
+    (!e.dataTransfer.items ||
+      !Array.from(e.dataTransfer.items).some((it) => it.webkitGetAsEntry?.()?.isDirectory))
+  ) {
+    setTimeout(() => window.close(), 200);
+    return;
+  }
+  e.preventDefault();
+  const files = await filesFromDataTransfer(e.dataTransfer);
+  if (!files.length) return;
+  if (playlist.length) appendToPlaylist(files);
+  else if (files.length === 1 && !files[0].webkitRelativePath) loadFile(files[0]);
+  else setPlaylist(files);
+});
+
+// ─── Tab: switch focus between player and playlist ───────
+document.addEventListener("keydown", (e) => {
+  if (e.code !== "Tab" || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+  // Only toggle when there is actually a playlist to switch to. Without this
+  // Tab would still get hijacked on the empty file-picker overlay.
+  if (!playlist.length) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const focusInPlaylist =
+    playlistPanel.contains(document.activeElement) || document.activeElement === playlistPanel;
+  if (focusInPlaylist) {
+    playerEl.focus();
+  } else {
+    if (playlistPanel.hidden) showPlaylist();
+    playlistPanel.focus({ preventScroll: true });
+  }
+}, true); // capture so it wins over the search input's default tab-out
+
+// ─── Cache info UI ────────────────────────────────────────
+function formatBytes(b) {
+  if (!b) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let i = 0, n = b;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return `${n.toFixed(n < 10 && i > 0 ? 1 : 0)} ${units[i]}`;
+}
+async function refreshCacheInfo() {
+  const { count, bytes } = await cacheStats();
+  cacheSizeText.textContent = count
+    ? `${formatBytes(bytes)} · ${count} ${count === 1 ? "thumb" : "thumbs"}`
+    : "No cache yet";
+  cacheClearBtn.disabled = count === 0;
+}
+cacheClearBtn.addEventListener("click", async () => {
+  cacheClearBtn.disabled = true;
+  cacheClearBtn.textContent = "Clearing…";
+  await cacheClear();
+  cacheClearBtn.textContent = "Clear cache";
+  await refreshCacheInfo();
+});
+refreshCacheInfo();
+// Keep the displayed total in sync as new thumbs land in the cache. The
+// drop overlay is the only place this widget lives, so we only need to
+// update while it's visible — but a periodic cheap query is simpler than
+// hooking every cachePut call site.
+setInterval(() => {
+  if (overlay.classList.contains("hidden")) return;
+  refreshCacheInfo();
+}, 4000);
+
+// ─── Link field, and the two settings the popup used to own ──────────
+// All of this ran in popup.js until the popup was removed. The toolbar icon
+// opens this page directly now, so it lives here.
+(() => {
+  const linkForm = document.getElementById("linkForm");
+  const linkInput = document.getElementById("linkInput");
+  const linkPaste = document.getElementById("linkPaste");
+
+  // Navigating rather than setting playerEl.src reuses the whole ?url= path
+  // above — the file-vs-stream branch, the title, the name derivation.
+  const play = (raw) => {
+    const value = (raw || "").trim();
+    if (!/^https?:\/\//i.test(value)) {
+      linkInput.value = value;
+      linkInput.focus();
+      linkInput.setCustomValidity("Enter a link starting with http:// or https://");
+      linkInput.reportValidity();
+      setTimeout(() => linkInput.setCustomValidity(""), 10);
+      return;
+    }
+    location.href = `player.html?url=${encodeURIComponent(value)}`;
+  };
+
+  linkForm?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    play(linkInput.value);
+  });
+  linkInput?.addEventListener("input", () => linkInput.setCustomValidity(""));
+
+  linkPaste?.addEventListener("click", async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      linkInput.value = (text || "").trim();
+      linkInput.focus();
+    } catch {
+      // Clipboard read refused — the field is still there to type into,
+      // which is the whole reason it exists.
+      linkInput.focus();
+    }
+  });
+
+  // ── Detect-download-links toggle ──
+  // Source of truth is the storage flag (the user's preference). The
+  // permission only makes the HEAD probes succeed; we never try to revoke it
+  // on OFF, because a permission granted as required on an older install
+  // cannot be revoked without a reinstall. The flag alone gates the content
+  // script, which fully disables the feature.
+  const probeToggle = document.getElementById("probe-toggle");
+  const probeSub = document.getElementById("probe-sub");
+  const PROBE_ORIGINS = { origins: ["<all_urls>"] };
+
+  if (probeToggle) {
+    chrome.storage.local.get("probeBlankLinks", (data) => {
+      probeToggle.checked = !!data.probeBlankLinks;
+    });
+
+    probeToggle.addEventListener("change", () => {
+      if (!probeToggle.checked) {
+        chrome.storage.local.set({ probeBlankLinks: false });
+        return;
+      }
+      // Resolves granted=true instantly with no prompt when the permission is
+      // already held, so this covers both first run and every run after.
+      chrome.permissions.request(PROBE_ORIGINS, (granted) => {
+        probeToggle.checked = granted;
+        chrome.storage.local.set({ probeBlankLinks: granted });
+        if (!granted) {
+          probeSub.textContent = "Permission denied";
+          probeSub.style.color = "#ef4444";
+          setTimeout(() => {
+            probeSub.textContent = "Scan CDN / no-extension links for video";
+            probeSub.style.color = "";
+          }, 2000);
+        }
+      });
+    });
+  }
+
+  // ── Take over page videos ──
+  //
+  // The flag alone gates it: the content script reads it on every page, and
+  // nothing is injected while it is off. The takeover itself is the library's
+  // upgradeVideoElements(), which only ever takes a <video> that is playing a
+  // file at a URL — the streaming sites feed their element from JavaScript, so
+  // there is no file to open and it leaves them alone.
+  const takeoverToggle = document.getElementById("takeover-toggle");
+  const takeoverSub = document.getElementById("takeover-sub");
+  const takeoverGrant = document.getElementById("takeover-grant");
+  const TAKEOVER_SAID = takeoverSub ? takeoverSub.textContent : "";
+  const TAKEOVER_ORIGINS = { origins: ["<all_urls>"] };
+
+  /**
+   * Say when the setting is on but cannot do the half that matters.
+   *
+   * Without site access the extension cannot add the CORS header a site never
+   * sent, so a file from another origin — which includes every file a page
+   * serves from its own address and redirects to a CDN — falls back to the
+   * browser's own decoders. That is the case this exists to beat, and it
+   * failed quietly: the player looked like it was working and the console
+   * filled with blocked fetches. Now the row says so, and offers the fix.
+   */
+  function refreshTakeoverRow() {
+    if (!takeoverToggle) return;
+    chrome.storage.local.get("takeOverPageVideos", (data) => {
+      const on = !!data.takeOverPageVideos;
+      takeoverToggle.checked = on;
+      chrome.permissions.contains(TAKEOVER_ORIGINS, (granted) => {
+        const needs = on && !granted;
+        if (takeoverGrant) takeoverGrant.hidden = !needs;
+        if (!takeoverSub) return;
+        takeoverSub.textContent = needs
+          ? "Needs site access — without it, other-origin files fall back to the browser"
+          : TAKEOVER_SAID;
+        takeoverSub.style.color = needs ? "#f5b83d" : "";
+      });
+    });
+  }
+  refreshTakeoverRow();
+  chrome.permissions.onAdded.addListener(refreshTakeoverRow);
+  chrome.permissions.onRemoved.addListener(refreshTakeoverRow);
+  takeoverGrant?.addEventListener("click", () => {
+    chrome.permissions.request(TAKEOVER_ORIGINS, () => refreshTakeoverRow());
+  });
+
+  if (takeoverToggle) {
+    takeoverToggle.addEventListener("change", () => {
+      const on = takeoverToggle.checked;
+      chrome.storage.local.set({ takeOverPageVideos: on });
+      const say = (words) => {
+        if (!takeoverSub) return;
+        const said = takeoverSub.dataset.said || takeoverSub.textContent;
+        takeoverSub.dataset.said = said;
+        takeoverSub.textContent = words;
+        setTimeout(() => {
+          takeoverSub.textContent = said;
+        }, 2600);
+      };
+      if (!on) {
+        say("Off — pages keep their own player");
+        return;
+      }
+      // Site access is what lets the extension add the CORS header a site
+      // never sent — without it a file from another origin still plays, but
+      // through the browser's own decoders, which is the thing this is for.
+      // Asked for, not required: the setting stays on either way.
+      chrome.permissions.request(TAKEOVER_ORIGINS, (granted) => {
+        say(
+          granted
+            ? "On — open a page with a video file in it"
+            : "On — without site access, other-origin files fall back to the browser",
+        );
+        setTimeout(refreshTakeoverRow, 2700);
+      });
+    });
+  }
+
+  // ── Experimental features row ──
+  // `window.chrome` is NOT a Chromium test inside an extension page — Firefox
+  // defines a `chrome` alias for the WebExtension APIs too, so this row would
+  // otherwise offer a chrome://flags link Firefox cannot open. The extension
+  // URL scheme is the honest signal.
+  const flagBtn = document.getElementById("open-flags");
+  const flagSub = document.getElementById("flags-sub");
+  const isChromium = (() => {
+    try {
+      return chrome.runtime.getURL("").startsWith("chrome-extension://");
+    } catch {
+      return false;
+    }
+  })();
+
+  // Same probe as app/compare.html: setting WebGL2 drawingBufferColorSpace to
+  // rec2100-pq only sticks when the experimental flag is on in Chromium.
+  const flagEnabled = (() => {
+    if (!isChromium) return false;
+    try {
+      const gl = document.createElement("canvas").getContext("webgl2");
+      if (!gl || gl.drawingBufferColorSpace === undefined) return false;
+      gl.drawingBufferColorSpace = "rec2100-pq";
+      return gl.drawingBufferColorSpace === "rec2100-pq";
+    } catch {
+      return false;
+    }
+  })();
+
+  if (flagBtn && flagSub) {
+    if (flagEnabled) {
+      // Already on — a check badge, not a button, so it does not suggest the
+      // user still has something to do.
+      flagSub.textContent = "Enabled — HDR & codecs unlocked";
+      flagSub.style.color = "#10b981";
+      const badge = document.createElement("span");
+      badge.className = "setting-badge";
+      badge.title = "Experimental features enabled";
+      badge.textContent = "\u2713";
+      flagBtn.replaceWith(badge);
+    } else if (!isChromium) {
+      flagBtn.style.display = "none";
+      flagSub.textContent = "Chrome only";
+    } else {
+      flagBtn.addEventListener("click", () => {
+        chrome.tabs.create({ url: "chrome://flags/#enable-experimental-web-platform-features" });
+      });
+    }
+  }
+})();
+
+// ─── Forward keyboard ─────────────────────────────────────
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.isContentEditable) return;
+  // Escape leaves the picker when there is a video behind it — checked before
+  // the player sees the key, which would otherwise take it as "exit
+  // fullscreen" and leave the picker up.
+  if (e.code === "Escape" && !overlay.classList.contains("hidden") && hasMedia) {
+    hidePicker();
+    e.preventDefault();
+    return;
+  }
+  if (!playerEl || !playerEl.shadowRoot) return;
+  if (document.activeElement === playerEl || playerEl.contains(e.target)) return;
+
+  // When the playlist panel has focus, Up/Down/Enter belong to the playlist
+  // (handled by its own keydown listener). The panel handler stops propagation
+  // for those keys — anything that reaches here from inside the panel is a
+  // key the panel didn't claim, so we let it through to the player.
+  if (playlistPanel.contains(document.activeElement) || document.activeElement === playlistPanel) {
+    if (e.code === "ArrowUp" || e.code === "ArrowDown" || e.code === "Enter") return;
+  }
+
+  playerEl.dispatchEvent(new KeyboardEvent("keydown", {
+    key: e.key, code: e.code, keyCode: e.keyCode,
+    shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, altKey: e.altKey, metaKey: e.metaKey,
+    bubbles: true, cancelable: true,
+  }));
+  if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.code)) {
+    e.preventDefault();
+  }
+});

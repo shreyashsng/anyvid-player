@@ -1,0 +1,234 @@
+{
+  "name": "anyvid-player",
+  "version": "0.4.1",
+  "description": "Browser Media Engine & Video Player for MKV, HEVC, AV1, 4K HDR, multi-audio, and embedded subtitles. Powered by WebCodecs, WebGL2, and FFmpeg WASM.",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "jsdelivr": "dist/element.global.js",
+  "unpkg": "dist/element.global.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./demuxer": {
+      "types": "./dist/demuxer.d.ts",
+      "import": "./dist/demuxer.js",
+      "require": "./dist/demuxer.cjs"
+    },
+    "./player": {
+      "types": "./dist/player.d.ts",
+      "import": "./dist/player.js",
+      "require": "./dist/player.cjs"
+    },
+    "./element": {
+      "types": "./dist/element.d.ts",
+      "import": "./dist/element.js",
+      "require": "./dist/element.cjs"
+    },
+    "./element/slim": {
+      "types": "./dist/element.d.ts",
+      "import": "./dist/element.slim.js",
+      "require": "./dist/element.slim.cjs"
+    },
+    "./element/global": {
+      "types": "./dist/element.d.ts",
+      "import": "./dist/element.global.js",
+      "require": "./dist/element.global.js",
+      "default": "./dist/element.global.js"
+    },
+    "./element/slim/global": {
+      "types": "./dist/element.d.ts",
+      "import": "./dist/element.slim.global.js",
+      "require": "./dist/element.slim.global.js",
+      "default": "./dist/element.slim.global.js"
+    },
+    "./movi.wasm": "./dist/movi.wasm",
+    "./react": {
+      "types": "./dist/react/index.tsx",
+      "import": "./dist/react/index.js",
+      "default": "./dist/react/index.js"
+    },
+    "./react/slim": {
+      "types": "./dist/react/slim.tsx",
+      "import": "./dist/react/slim.js",
+      "default": "./dist/react/slim.js"
+    },
+    "./vue": {
+      "types": "./dist/vue/index.ts",
+      "import": "./dist/vue/index.js",
+      "default": "./dist/vue/index.js"
+    },
+    "./vue/slim": {
+      "types": "./dist/vue/slim.ts",
+      "import": "./dist/vue/slim.js",
+      "default": "./dist/vue/slim.js"
+    },
+    "./svelte": {
+      "types": "./dist/svelte/MoviPlayer.svelte",
+      "svelte": "./dist/svelte/MoviPlayer.svelte",
+      "default": "./dist/svelte/MoviPlayer.svelte"
+    },
+    "./svelte/slim": {
+      "types": "./dist/svelte/MoviPlayerSlim.svelte",
+      "svelte": "./dist/svelte/MoviPlayerSlim.svelte",
+      "default": "./dist/svelte/MoviPlayerSlim.svelte"
+    },
+    "./svelte/MoviSource": {
+      "types": "./dist/svelte/MoviSource.svelte",
+      "svelte": "./dist/svelte/MoviSource.svelte",
+      "default": "./dist/svelte/MoviSource.svelte"
+    },
+    "./svelte/MoviTrack": {
+      "types": "./dist/svelte/MoviTrack.svelte",
+      "svelte": "./dist/svelte/MoviTrack.svelte",
+      "default": "./dist/svelte/MoviTrack.svelte"
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.map",
+    "!dist/ffmpeg/**",
+    "!dist/dav1d/**",
+    "README.md",
+    "AGENTS.md",
+    "LICENSE",
+    "custom-elements.json"
+  ],
+  "customElements": "custom-elements.json",
+  "peerDependencies": {
+    "react": ">=17",
+    "vue": ">=3.3",
+    "svelte": ">=4"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "vue": {
+      "optional": true
+    },
+    "svelte": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "build": "npm run build:ts",
+    "build:all": "npm run build:wasm && npm run build:ts",
+    "build:ts": "node scripts/check-wasm.js && tsc && node scripts/build-standalone.js && node scripts/build-wrappers.mjs && node scripts/build-custom-data.mjs",
+    "build:ts:fast": "node scripts/check-wasm.js && tsc --emitDeclarationOnly && MOVI_ENTRY=element,element.slim MOVI_FORMAT=es MOVI_TERSER_PASSES=2 node scripts/build-standalone.js && node scripts/build-wrappers.mjs && node scripts/build-custom-data.mjs",
+    "release": "node scripts/release.mjs",
+    "sync:element": "node scripts/sync-element.mjs",
+    "build:wasm": "mkdir -p dist/wasm && docker compose run --rm build",
+    "build:wasm:force": "mkdir -p dist/wasm && docker compose run --rm -e FORCE_FFMPEG=true -e FORCE_DAV1D=true build",
+    "dev": "vite --host --open /dev/",
+    "test": "vitest",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build && npm run typecheck",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs",
+    "docs:deploy": "npm run docs:build && npx gh-pages -d docs/.vitepress/dist",
+    "app:dev": "cd app && npx wrangler dev --var LOCAL_DEV:true",
+    "app:deploy": "cd app && cp worker.js worker.js.bak && sed -i '' \"s|\\\"__BUILD_VERSION__\\\"|\\\"$(date +%s)\\\"|\" worker.js && npx wrangler deploy; mv worker.js.bak worker.js",
+    "app:harden": "node scripts/harden-element.js",
+    "app:upload": "npm run app:harden && wrangler r2 object put movi-assets/element.js --file dist/element.js --remote && wrangler r2 object put movi-assets/element.slim.js --file dist/element.slim.js --remote && wrangler r2 object put movi-assets/movi.wasm --file dist/movi.wasm --content-type application/wasm --remote",
+    "app:upload:icons": "node scripts/upload-app-icons.mjs",
+    "app:upload:local": "wrangler r2 object put movi-assets/element.js --file dist/element.js --local --persist-to app/.wrangler/state",
+    "app:release": "npm run build:ts && npm run app:upload && npm run app:deploy"
+  },
+  "keywords": [
+    "video-player",
+    "video",
+    "player",
+    "webcodecs",
+    "ffmpeg",
+    "wasm",
+    "webassembly",
+    "hdr",
+    "hevc",
+    "h265",
+    "h264",
+    "av1",
+    "vp9",
+    "mkv",
+    "mp4",
+    "webm",
+    "demuxer",
+    "decoder",
+    "streaming",
+    "subtitles",
+    "srt",
+    "ass",
+    "multi-audio",
+    "canvas",
+    "encrypted-video",
+    "drm",
+    "content-protection",
+    "chapters",
+    "web-component",
+    "custom-element",
+    "html5-video",
+    "media-player",
+    "4k",
+    "hdr10",
+    "hlg",
+    "bt2020",
+    "hls",
+    "dash",
+    "mpeg-dash",
+    "m3u8",
+    "adaptive-streaming",
+    "live-streaming",
+    "picture-in-picture",
+    "lcevc",
+    "webcodecs-player",
+    "wasm-video-player",
+    "browser-video-player",
+    "play-mkv-browser",
+    "mkv-player",
+    "hevc-player",
+    "av1-player",
+    "client-side-video",
+    "media-source-extensions",
+    "mse",
+    "libmedia",
+    "ffmpeg-wasm",
+    "video.js-alternative",
+    "hls.js-alternative",
+    "shaka-player-alternative"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shreyashsng/anyvid-player.git"
+  },
+  "bugs": {
+    "url": "https://github.com/shreyashsng/anyvid-player/issues"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.0",
+    "@rollup/plugin-terser": "^1.0.0",
+    "@types/node": "^20.10.0",
+    "@webgpu/types": "^0.1.69",
+    "gh-pages": "^6.3.0",
+    "terser": "^5.44.1",
+    "typescript": "^5.9.3",
+    "vite": "^5.0.0",
+    "vite-plugin-dts": "^5.0.2",
+    "vitepress": "^1.6.4",
+    "vitest": "^4.1.8"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "dashjs": "^5.2.0",
+    "hls.js": "^1.6.16",
+    "shaka-player": "^4.11.2"
+  }
+}

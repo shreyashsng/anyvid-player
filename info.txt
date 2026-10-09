@@ -1,0 +1,20 @@
+# Movi Browser Media Engine — Product Requirements
+
+Core Positioning:
+Not an MKV player — a browser media engine that turns complex media into a developer-friendly playback system.
+
+Requirements:
+- Manifest-first engine — turn any MKV/media source into a rich, standardized manifest.
+- Any source — local files, URL, Blob, streams, HTTP Range.
+- True multi-track — seamless audio/subtitle switching without restarting video.
+- Codec fallback engine — native/WebCodecs → WASM automatically.
+- Capability intelligence — tell developers exactly why a track works/doesn't.
+- Extreme performance — low RAM, low CPU, fast startup, intelligent buffering/seeking.
+- Developer-first API — use the engine without using our player/UI.
+- Custom-player ready — React/Vue/Svelte/Web Component adapters.
+- Built-in diagnostics — codec, decoder, hardware acceleration, buffering, network and errors.
+- Subtitle powerhouse — ASS/SSA, fonts, styling, embedded subtitles.
+- Remote MKV streaming — play huge files without downloading the whole thing.
+- Reference player — polished player included, but completely optional.
+- Universal media inspector — drop a file/URL and instantly inspect everything inside.
+- Embeddable — one script/component to give any website serious MKV support.

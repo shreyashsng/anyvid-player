@@ -1,0 +1,1045 @@
+import { MediaPlayer } from "dashjs";
+import type { MediaPlayerClass, Representation, Thumbnail } from "dashjs";
+import { EventEmitter } from "../events/EventEmitter";
+import {
+  PlayerEventMap,
+  PlayerState,
+  PlayerConfig,
+  Track,
+  VideoTrack,
+  AudioTrack,
+  SubtitleTrack,
+} from "../types";
+import { CanvasRenderer } from "./CanvasRenderer";
+import { TrackManager } from "../core/TrackManager";
+import { Logger } from "../utils/Logger";
+import { sanitizeVttHtml } from "./sanitizeVttHtml";
+import { loadPersistedLinkBps, raiseLinkBps } from "../utils/LinkRate";
+
+const TAG = "DASHPlayerWrapper";
+
+/**
+ * MPEG-DASH wrapper, mirroring HLSPlayerWrapper. dash.js attaches to a hidden
+ * <video> element (MSE under the hood); we draw its frames to the shared canvas
+ * via requestVideoFrameCallback, exactly like the HLS path. Only the streaming
+ * bits — manifest load, quality/representation switching, stats — are dash.js
+ * specific; everything that touches the <video> element is identical to HLS.
+ */
+export class DASHPlayerWrapper extends EventEmitter<PlayerEventMap> {
+  private config: PlayerConfig;
+  private dash: MediaPlayerClass | null = null;
+  private videoElement: HTMLVideoElement;
+  private canvasRenderer: CanvasRenderer | null = null;
+  private state: PlayerState = "idle";
+  public trackManager: TrackManager;
+  private frameCallbackId: number | null = null;
+  private _framesRendered: number = 0;
+  // Representations from the manifest, indexed to match the VideoTrack ids we
+  // hand the TrackManager (track id === array index; -1 is Auto/ABR).
+  private representations: Representation[] = [];
+  // Subtitle rendering: dash.js schedules cue timing itself (cueEnter/cueExit)
+  // when dispatchForManualRendering is set — we just paint the given text into
+  // our own overlay, keyed by cue id so cueExit can remove the right element.
+  private textContainer: HTMLDivElement | null = null;
+  // Seek-preview thumbnails. dash.js reads the manifest's DASH-IF thumbnail
+  // tile track and resolves a time to a tile for us; the sprite fetch and the
+  // crop are ours, same as the Shaka path. Latched by a probe rather than read
+  // off a field because dash.js exposes no synchronous "is there an image
+  // AdaptationSet" answer, and hasThumbnails() has to be sync — the Timeline
+  // control and MoviElement's preview guard both ask before any hover.
+  private thumbnailsAvailable: boolean = false;
+  private bwTimer: number | null = null;
+  private bwPeak = 0; // best throughput seen this session, bits per second
+  // Decoded sprite sheets keyed by URL — adjacent hover positions usually live
+  // in the same sheet, so this avoids re-fetching/decoding it on every move.
+  private spriteCache = new Map<string, Promise<ImageBitmap | null>>();
+
+  constructor(config: PlayerConfig) {
+    super();
+    this.config = config;
+    this.trackManager = new TrackManager();
+
+    this.videoElement = document.createElement("video");
+    this.videoElement.crossOrigin = "anonymous";
+    this.videoElement.playsInline = true;
+    this.videoElement.style.display = "none"; // Hidden; canvas renderer draws frames
+
+    // Preserve pitch when changing playback speed
+    (this.videoElement as any).preservesPitch = true;
+    (this.videoElement as any).mozPreservesPitch = true; // Firefox
+    (this.videoElement as any).webkitPreservesPitch = true; // Safari/older Chrome
+
+    // DRM mode: use native video element directly (no canvas) — canvas can't
+    // access DRM-protected frames (browser blocks VideoFrame copy).
+    if (!config.drm && config.renderer === "canvas" && config.canvas) {
+      this.canvasRenderer = new CanvasRenderer(config.canvas);
+      this.createTextContainer();
+    }
+
+    this.setupEventHandlers();
+
+    // Drive dash.js quality from the TrackManager (mirrors HLS).
+    this.trackManager.on("videoTrackChange", (track: VideoTrack | null) => {
+      if (!this.dash) return;
+      const id = track ? track.id : -1;
+
+      // Auto (-1) → enable ABR.
+      if (id === -1) {
+        this.dash.updateSettings({
+          streaming: { abr: { autoSwitchBitrate: { video: true } } },
+        });
+        Logger.info(TAG, "Switched to Auto Quality (ABR)");
+        return;
+      }
+
+      const rep = this.representations[id];
+      if (!rep) return;
+
+      // Manual selection: pin ABR off, then switch. forceReplace flushes the
+      // buffer for an immediate switch when paused; a smooth (next-segment)
+      // switch while playing avoids a stall.
+      this.dash.updateSettings({
+        streaming: { abr: { autoSwitchBitrate: { video: false } } },
+      });
+      this.dash.setRepresentationForTypeById(
+        "video",
+        rep.id,
+        this.state !== "playing",
+      );
+      Logger.info(TAG, `Requesting representation ${rep.id} (${rep.height}p)`);
+    });
+
+    this.trackManager.on("subtitleTrackChange", (track: SubtitleTrack | null) => {
+      if (!this.dash) return;
+      // Drop the previous track's on-screen cue on EVERY change. dash.js keeps
+      // per-track cueData and only runs CUE_EXIT for the active track, so after
+      // a language switch the old track's active cue never gets its exit — its
+      // text would linger. The new track's currently-active cue re-fires
+      // CUE_ENTER once it's active, so this only clears the stale line.
+      if (this.textContainer) this.textContainer.textContent = "";
+      // setTextTrack is the correct switch API: it sets the chosen track's
+      // manualMode to SHOWING (and the rest to HIDDEN), which is exactly what
+      // dash.js's manual cue processing keys on to decide whose cues to
+      // dispatch. setCurrentTrack only re-picks the ABR text adaptation and
+      // leaves manualMode untouched, so the newly-selected track's cues never
+      // fire — the display stays stuck on the previous language. -1 disables.
+      // track.id is the index into getTracksFor("text"), matching setTextTrack.
+      this.dash.setTextTrack(track ? track.id : -1);
+      Logger.info(
+        TAG,
+        track
+          ? `Selected subtitle track ${track.id} (${track.language || track.label || ""})`
+          : "Subtitles disabled",
+      );
+    });
+
+    // Audio-language switch. dash.js runs bitrate ABR within each language;
+    // switching the current audio MediaInfo changes the language. id is the
+    // index into getTracksFor("audio") (see updateTracks).
+    this.trackManager.on("audioTrackChange", (track: AudioTrack | null) => {
+      if (!this.dash || !track) return;
+      const audioTracks = this.dash.getTracksFor("audio") ?? [];
+      const target = audioTracks[track.id];
+      if (!target) return;
+      const current = this.dash.getCurrentTrackFor("audio");
+      if (current && current.index === target.index) return; // already active
+      this.dash.setCurrentTrack(target);
+      Logger.info(
+        TAG,
+        `Selected audio track ${track.id} (${track.language || track.label || ""})`,
+      );
+    });
+  }
+
+  /**
+   * Own caption-rendering overlay, a sibling of the shared canvas (mirrors
+   * ShakaPlayerWrapper's textContainer). Registered with the SAME
+   * CanvasRenderer instance via setSubtitleOverlay() so its existing
+   * rotation-aware resize() logic (dimension swap for 90/270°, centering,
+   * rotate transform) sizes/positions/rotates it automatically — cueEnter/
+   * cueExit just add/remove text nodes into it.
+   */
+  private createTextContainer(): void {
+    if (this.textContainer || !this.config.canvas) return;
+    const canvas = this.config.canvas as HTMLCanvasElement;
+    const root = canvas.parentNode;
+    if (!root) return;
+    const tc = document.createElement("div");
+    tc.className = "movi-dash-text-container";
+    tc.style.position = "absolute";
+    tc.style.inset = "0";
+    tc.style.pointerEvents = "none";
+    tc.style.zIndex = "2"; // above the canvas, below the controls bar
+    tc.style.textAlign = "center";
+    tc.style.color = "#fff";
+    tc.style.textShadow = "0 1px 3px rgba(0,0,0,0.9), 0 0 2px rgba(0,0,0,0.9)";
+    tc.style.fontFamily = "sans-serif";
+    tc.style.fontSize =
+      "calc(clamp(20px, calc(var(--movi-player-width, 100vw) * 0.032), 40px) * var(--movi-sub-size-mult, 1))";
+    root.appendChild(tc);
+    this.textContainer = tc;
+    this.canvasRenderer?.setSubtitleOverlay(tc);
+  }
+
+  /**
+   * Flatten an imsc ISD (dash.js's parsed TTML cue) to plain text with line
+   * breaks. Leaf spans carry `.text`; `br` is a newline; `p` blocks are lines;
+   * everything else is a container to recurse into. Styling and region
+   * positioning are dropped — rendering those faithfully needs the imsc
+   * renderer, which we don't bundle.
+   */
+  private static isdToText(node: any): string {
+    if (!node) return "";
+    if (node.kind === "br") return "\n";
+    if (node.kind === "span" && typeof node.text === "string") return node.text;
+    if (Array.isArray(node.contents)) {
+      let out = node.contents
+        .map((c: any) => DASHPlayerWrapper.isdToText(c))
+        .join("");
+      if (node.kind === "p") out += "\n";
+      return out;
+    }
+    return "";
+  }
+
+  private setupEventHandlers(): void {
+    this.videoElement.addEventListener("play", () => this.setState("playing"));
+    this.videoElement.addEventListener("playing", () =>
+      this.setState("playing"),
+    );
+    this.videoElement.addEventListener("pause", () => {
+      if (this.state !== "ended") this.setState("paused");
+    });
+    this.videoElement.addEventListener("ended", () => this.setState("ended"));
+    this.videoElement.addEventListener("seeking", () =>
+      this.setState("seeking"),
+    );
+    this.videoElement.addEventListener("seeked", () => {
+      if (this.videoElement.paused) this.setState("paused");
+      else this.setState("playing");
+    });
+    this.videoElement.addEventListener("waiting", () =>
+      this.setState("buffering"),
+    );
+    this.videoElement.addEventListener("timeupdate", () => {
+      this.emit("timeUpdate", this.videoElement.currentTime);
+    });
+    this.videoElement.addEventListener("durationchange", () => {
+      this.emit("durationChange", this.videoElement.duration);
+    });
+    this.videoElement.addEventListener("error", (_e) => {
+      const error = this.videoElement.error;
+      this.emit("error", new Error(error?.message || "Video element error"));
+      this.setState("error");
+    });
+  }
+
+  private setState(newState: PlayerState) {
+    if (this.state !== newState) {
+      this.state = newState;
+      this.emit("stateChange", newState);
+
+      if (newState === "playing" && this.canvasRenderer) {
+        this.startFrameLoop();
+      } else if (newState !== "seeking" && newState !== "buffering") {
+        if (
+          newState === "paused" ||
+          newState === "ended" ||
+          newState === "error" ||
+          newState === "idle"
+        ) {
+          this.stopFrameLoop();
+        }
+      }
+    }
+  }
+
+  private startFrameLoop() {
+    if (this.frameCallbackId !== null) return;
+
+    this.frameCallbackId = this.videoElement.requestVideoFrameCallback(
+      (_now, _metadata) => {
+        this.renderFrame();
+
+        this.frameCallbackId = null;
+        if (
+          this.state === "playing" ||
+          this.state === "seeking" ||
+          this.state === "buffering"
+        ) {
+          this.startFrameLoop();
+        }
+      },
+    );
+  }
+
+  private stopFrameLoop() {
+    if (this.frameCallbackId !== null) {
+      this.videoElement.cancelVideoFrameCallback(this.frameCallbackId);
+      this.frameCallbackId = null;
+    }
+  }
+
+  private renderFrame() {
+    if (!this.canvasRenderer) return;
+
+    try {
+      // Element straight to the renderer — a VideoFrame wrapper around it
+      // uploads nothing on Firefox Android (see RenderSource in CanvasRenderer).
+      this.canvasRenderer.render(this.videoElement);
+      this._framesRendered++;
+    } catch (e) {
+      Logger.warn(TAG, "Failed to render video frame", e);
+    }
+  }
+
+  async load(): Promise<void> {
+    this.setState("loading");
+    this.emit("loadStart", undefined);
+
+    const source = this.config.source;
+    const url = source && source.type === "url" ? source.url : null;
+    if (!url) {
+      throw new Error("DASH source must be a URL");
+    }
+
+    if (this.config.drm) {
+      Logger.info(TAG, "DRM mode enabled — using native video element (no canvas)");
+      if (this.config.licenseUrl) {
+        this.setupEME(this.config.licenseUrl, this.config.licenseHeaders);
+      }
+    }
+
+    this.dash = MediaPlayer().create();
+
+    // Text tracks off by default (Movi's UI controls selection) and dispatched
+    // to us as cueEnter/cueExit events instead of being rendered by dash.js's
+    // own (native-video-anchored) caption box — our <video> is hidden, canvas
+    // draws frames, so dash.js's default caption rendering would never be seen.
+    this.dash.updateSettings({
+      streaming: { text: { defaultEnabled: false, dispatchForManualRendering: true } },
+    });
+
+    // Open on what this device measured last time instead of dash.js's own
+    // bottom-of-the-ladder start. dash.js does ship lastBitrateCachingInfo, on
+    // by default, but in v5 that persists only language/codec settings — the
+    // stored dashjs_video_settings holds {lang, viewpoint, codec} and no
+    // bitrate — so every load still opens near the bottom and climbs. Measured
+    // on a 4K ladder over a gigabit link: dash.js started at 270p/760 kbps and
+    // only reached 2160p after several switches.
+    //
+    // initialBitrate is in kbps, while the shared record (like everything else
+    // that reads it) is bits per second.
+    const seed = loadPersistedLinkBps();
+    if (seed > 0) {
+      this.dash.updateSettings({
+        streaming: { abr: { initialBitrate: { video: Math.round(seed / 1000) } } },
+      });
+      Logger.info(
+        TAG,
+        `Seeding ABR with the last measured throughput: ${(seed / 1e6).toFixed(1)} Mbps`,
+      );
+    }
+
+    // Custom media headers on every request dash.js makes (manifest + segments).
+    // Must be registered before initialize() so the manifest fetch carries them.
+    const mediaHeaders = this.config.headers;
+    if (mediaHeaders) {
+      (this.dash as any).addRequestInterceptor((request: any) => {
+        request.headers = { ...(request.headers || {}), ...mediaHeaders };
+        return Promise.resolve(request);
+      });
+    }
+
+    // autoplay=false — MoviPlayer/MoviElement decide when to play().
+    this.dash.initialize(this.videoElement, url, false);
+
+    return new Promise<void>((resolve, reject) => {
+      let settled = false;
+
+      this.dash!.on(MediaPlayer.events.STREAM_INITIALIZED, () => {
+        const count = this.updateTracks();
+        Logger.info(TAG, `DASH manifest parsed. Found ${count} representations`);
+        void this.probeThumbnails();
+        this.startBandwidthPersistence();
+        this.setState("ready");
+        this.emit("loadEnd", undefined);
+        settled = true;
+        resolve();
+      });
+
+      // dash.js schedules cue timing itself and dispatches enter/exit — we
+      // paint the cue into our own overlay, keyed by dash.js's cueID. The cue
+      // shape differs by subtitle format:
+      //   • WebVTT / plain text → `text` is the caption string (sanitize + paint)
+      //   • WebVTT-as-HTML       → `cueHTMLElement` is a pre-rendered node
+      //   • TTML (imsc)          → `text` is "", content lives in the `isd`
+      //     (Intermediate Synchronic Document); no pre-rendered element, so we
+      //     extract plain text from the ISD (styling/positioning would need the
+      //     imsc renderer, which we don't bundle — words beat nothing).
+      this.dash!.on(MediaPlayer.events.CUE_ENTER, (e: any) => {
+        if (!this.textContainer) return;
+        const el = document.createElement("div");
+        el.dataset.cueId = String(e.cueID ?? e.id ?? "");
+        if (typeof e.text === "string" && e.text.length > 0) {
+          // Plain string from a remote manifest, not a trusted VTTCue —
+          // sanitize (whitelisted b/i/u/span/ruby/etc.) so <b>/<i> still
+          // render without an XSS hole.
+          el.appendChild(sanitizeVttHtml(e.text));
+        } else if (e.cueHTMLElement instanceof HTMLElement) {
+          el.appendChild(e.cueHTMLElement);
+        } else if (e.isd) {
+          const txt = DASHPlayerWrapper.isdToText(e.isd);
+          if (!txt) return;
+          txt.split("\n").forEach((line, i) => {
+            if (i > 0) el.appendChild(document.createElement("br"));
+            el.appendChild(document.createTextNode(line));
+          });
+        } else {
+          return;
+        }
+        this.textContainer.appendChild(el);
+      });
+      this.dash!.on(MediaPlayer.events.CUE_EXIT, (e: any) => {
+        if (!this.textContainer) return;
+        const el = this.textContainer.querySelector(
+          `[data-cue-id="${CSS.escape(String(e.cueID ?? e.id ?? ""))}"]`,
+        );
+        el?.remove();
+      });
+
+      // ABR / quality switches change the active rendition without changing
+      // the track list — re-fire tracksChange so the gear-badge UI repaints.
+      this.dash!.on(MediaPlayer.events.QUALITY_CHANGE_RENDERED, () => {
+        this.trackManager.emit("tracksChange", this.trackManager.getTracks());
+      });
+
+      this.dash!.on(MediaPlayer.events.ERROR, (e: any) => {
+        const detail =
+          e?.error?.message ||
+          (typeof e?.error === "string" ? e.error : e?.error?.code) ||
+          "DASH playback error";
+        Logger.error(TAG, `DASH error: ${detail}`);
+        const err = new Error(String(detail));
+        if (!settled) {
+          // Pre-load failure: reject ONLY — don't emit. dash.js is a fallback
+          // behind Shaka, so MoviPlayer is still working through the chain and
+          // surfaces the final (correctly-classified) error itself. Emitting
+          // here flashes the error overlay mid-fallback — and a manifest 403
+          // gets misread as a decode failure, briefly showing an irrelevant
+          // "Try Software Decoding" button. Mirrors ShakaPlayerWrapper, which
+          // throws without emitting.
+          settled = true;
+          reject(err);
+        } else {
+          // Post-load runtime error — surface to listeners as usual.
+          this.emit("error", err);
+          this.setState("error");
+        }
+      });
+    });
+  }
+
+  /** Build the quality track list from the manifest's video representations. */
+  private updateTracks(): number {
+    if (!this.dash) return 0;
+    this.representations = this.dash.getRepresentationsByType("video") ?? [];
+    const reps = this.representations;
+
+    const tracks: Track[] = [];
+
+    // Auto / ABR track.
+    const autoTrack: VideoTrack = {
+      id: -1,
+      type: "video",
+      codec: "auto",
+      width: 0,
+      height: 0,
+      frameRate: 0,
+      label: "Auto",
+    };
+    tracks.push(autoTrack);
+
+    // Disambiguate same-resolution renditions with their bitrate.
+    const heightCount = new Map<number, number>();
+    reps.forEach((r) => heightCount.set(r.height, (heightCount.get(r.height) || 0) + 1));
+
+    reps.forEach((r, index) => {
+      const hasDuplicates = (heightCount.get(r.height) || 0) > 1;
+      const label = hasDuplicates
+        ? `${r.height}p · ${(r.bandwidth / 1000).toFixed(0)} kbps`
+        : `${r.height}p`;
+
+      const videoTrack: VideoTrack = {
+        id: index,
+        type: "video",
+        codec: r.codecs ?? "",
+        bitRate: r.bandwidth,
+        width: r.width,
+        height: r.height,
+        frameRate: r.frameRate,
+        label,
+      };
+      tracks.push(videoTrack);
+    });
+
+    // Subtitle/text tracks. id is the index into getTracksFor("text") — the
+    // subtitleTrackChange handler looks the MediaInfo back up by that index.
+    const textTracks = this.dash.getTracksFor("text") ?? [];
+    textTracks.forEach((t, index) => {
+      const lang = t.lang && t.lang !== "und" ? t.lang : "";
+      const label = t.labels?.[0]?.text || lang || `Subtitle ${index + 1}`;
+      tracks.push({
+        id: index,
+        type: "subtitle",
+        codec: "",
+        language: lang,
+        label,
+        subtitleType: "text",
+      } as SubtitleTrack);
+    });
+
+    // Audio tracks — one per language / AdaptationSet (dash.js runs bitrate ABR
+    // within each). id is the index into getTracksFor("audio"), used by the
+    // audioTrackChange handler to switch language. Surfacing them makes the
+    // audio selector appear when there's more than one language.
+    const audioMediaInfos = this.dash.getTracksFor("audio") ?? [];
+    audioMediaInfos.forEach((t, index) => {
+      const lang = t.lang && t.lang !== "und" ? t.lang : "";
+      const label = t.labels?.[0]?.text || lang || `Audio ${index + 1}`;
+      tracks.push({
+        id: index,
+        type: "audio",
+        codec: (t.codec || "").replace(/^audio\//, ""),
+        language: lang,
+        label,
+        channels: (t as any).channelsCount || 0,
+        sampleRate: 0,
+      } as AudioTrack);
+    });
+
+    this.trackManager.setTracks(tracks);
+    this.trackManager.selectVideoTrack(-1); // default Auto
+
+    // Reflect dash.js's currently-selected audio language as the active track.
+    const currentAudio = this.dash.getCurrentTrackFor("audio");
+    if (currentAudio && audioMediaInfos.length > 1) {
+      const activeIdx = audioMediaInfos.findIndex(
+        (t) => t.index === currentAudio.index,
+      );
+      if (activeIdx >= 0) this.trackManager.selectAudioTrack(activeIdx);
+    }
+
+    if (this.canvasRenderer && reps.length > 0) {
+      // Size the canvas from the highest rendition; fall back to the <video>
+      // element's real dimensions if the manifest lacks width/height.
+      const top = reps.reduce((a, b) => (b.height > a.height ? b : a), reps[0]);
+      const applyDims = (w: number, h: number) => {
+        if (!this.canvasRenderer || w <= 0 || h <= 0) return;
+        this.canvasRenderer.configure(w, h);
+        const canvas = this.canvasRenderer.getCanvas();
+        const parent = canvas instanceof HTMLCanvasElement ? canvas.parentElement : null;
+        const cw = parent?.clientWidth || w;
+        const ch = parent?.clientHeight || h;
+        if (cw > 0 && ch > 0) {
+          this.canvasRenderer.resize(cw, ch);
+        }
+      };
+
+      if (top.width > 0 && top.height > 0) {
+        applyDims(top.width, top.height);
+      } else {
+        const onMeta = () => {
+          this.videoElement.removeEventListener("loadedmetadata", onMeta);
+          applyDims(this.videoElement.videoWidth, this.videoElement.videoHeight);
+        };
+        if (this.videoElement.videoWidth > 0 && this.videoElement.videoHeight > 0) {
+          applyDims(this.videoElement.videoWidth, this.videoElement.videoHeight);
+        } else {
+          this.videoElement.addEventListener("loadedmetadata", onMeta);
+        }
+      }
+    }
+
+    return reps.length;
+  }
+
+  async play(): Promise<void> {
+    await this.videoElement.play();
+  }
+
+  pause(): void {
+    this.videoElement.pause();
+  }
+
+  async seek(time: number): Promise<void> {
+    this.videoElement.currentTime = time;
+  }
+
+  getState(): PlayerState {
+    return this.state;
+  }
+
+  getDuration(): number {
+    return this.videoElement.duration;
+  }
+
+  getCurrentTime(): number {
+    return this.videoElement.currentTime;
+  }
+
+  setVolume(volume: number): void {
+    // HTMLMediaElement.volume only accepts [0,1]; boost (>1) is applied via the
+    // AudioContext gain path, not the native element, so clamp here.
+    this.videoElement.volume = Math.min(1, Math.max(0, volume));
+  }
+
+  setMuted(muted: boolean): void {
+    this.videoElement.muted = muted;
+  }
+
+  setPlaybackRate(rate: number): void {
+    this.videoElement.playbackRate = rate;
+  }
+
+  getVolume(): number {
+    return this.videoElement.volume;
+  }
+
+  isMuted(): boolean {
+    return this.videoElement.muted;
+  }
+
+  getPlaybackRate(): number {
+    return this.videoElement.playbackRate;
+  }
+
+  setSubtitleOverlay(_element: HTMLElement): void {
+    // Pending
+  }
+
+  setHDREnabled(enabled: boolean): void {
+    if (this.canvasRenderer) {
+      this.canvasRenderer.setHDREnabled(enabled);
+    }
+  }
+
+  /**
+   * Setup Encrypted Media Extensions (EME) for Widevine/FairPlay DRM.
+   * Identical to the HLS path — it operates on the <video> element, so DASH +
+   * a license server URL works the same way.
+   */
+  private setupEME(licenseUrl: string, headers?: Record<string, string>): void {
+    const video = this.videoElement;
+
+    video.addEventListener("encrypted", async (event) => {
+      Logger.info(TAG, `EME: encrypted event — initDataType=${event.initDataType}`);
+
+      try {
+        const config: MediaKeySystemConfiguration[] = [{
+          initDataTypes: [event.initDataType],
+          videoCapabilities: [{ contentType: 'video/mp4; codecs="avc1.42E01E"' }],
+          audioCapabilities: [{ contentType: 'audio/mp4; codecs="mp4a.40.2"' }],
+        }];
+
+        // Try key systems in order: Widevine, PlayReady (Edge), FairPlay (Safari).
+        const keySystems = [
+          "com.widevine.alpha",
+          "com.microsoft.playready",
+          "com.apple.fps.1_0",
+        ];
+        let keySystem = "";
+        let access: MediaKeySystemAccess | null = null;
+        for (const ks of keySystems) {
+          try {
+            access = await navigator.requestMediaKeySystemAccess(ks, config);
+            keySystem = ks;
+            break;
+          } catch {
+            /* not supported — try the next key system */
+          }
+        }
+        if (!access) {
+          throw new Error("No supported DRM key system (Widevine/PlayReady/FairPlay)");
+        }
+
+        Logger.info(TAG, `EME: Using ${keySystem}`);
+        const keys = await access.createMediaKeys();
+        await video.setMediaKeys(keys);
+
+        const session = keys.createSession();
+        session.addEventListener("message", async (e) => {
+          const response = await fetch(licenseUrl, {
+          signal: this.lifetimeAbort.signal,
+            method: "POST",
+            body: e.message,
+            headers: {
+              "Content-Type": "application/octet-stream",
+              ...headers,
+            },
+          });
+
+          if (!response.ok) {
+            Logger.error(TAG, `EME: License request failed (HTTP ${response.status})`);
+            this.emit("error", new Error(`DRM license request failed (HTTP ${response.status})`));
+            return;
+          }
+
+          const license = await response.arrayBuffer();
+          await session.update(new Uint8Array(license));
+          Logger.info(TAG, "EME: License acquired, playback authorized");
+        });
+
+        await session.generateRequest(event.initDataType, event.initData!);
+      } catch (err) {
+        Logger.error(TAG, "EME: DRM setup failed", err);
+        this.emit("error", new Error(`DRM not supported or license server unreachable`));
+      }
+    });
+  }
+
+  getVideoElement(): HTMLVideoElement {
+    return this.videoElement;
+  }
+
+  getBufferEndTime(): number {
+    if (this.videoElement.buffered.length) {
+      return this.videoElement.buffered.end(
+        this.videoElement.buffered.length - 1,
+      );
+    }
+    return 0;
+  }
+
+  resizeCanvas(width: number, height: number): void {
+    if (this.canvasRenderer) {
+      this.canvasRenderer.resize(width, height);
+    }
+  }
+
+  getVideoTracks(): VideoTrack[] {
+    return this.trackManager
+      .getTracks()
+      .filter((t) => t.type === "video") as VideoTrack[];
+  }
+
+  selectVideoTrack(id: number): void {
+    if (!this.dash) return;
+    // The trackManager event handler performs the dash.js switch.
+    this.trackManager.selectVideoTrack(id);
+  }
+
+  getAudioTracks(): AudioTrack[] {
+    return this.trackManager
+      .getTracks()
+      .filter((t) => t.type === "audio") as AudioTrack[];
+  }
+  selectAudioTrack(id: number): boolean {
+    // Drives the trackManager audioTrackChange handler, which performs the
+    // dash.js setCurrentTrack("audio") switch.
+    return this.trackManager.selectAudioTrack(id);
+  }
+  getSubtitleTracks(): SubtitleTrack[] {
+    return this.trackManager
+      .getTracks()
+      .filter((t) => t.type === "subtitle") as SubtitleTrack[];
+  }
+  async selectSubtitleTrack(id: number | null): Promise<boolean> {
+    return this.trackManager.selectSubtitleTrack(id);
+  }
+
+  setVideoRotation(deg: number): void {
+    this.canvasRenderer?.setManualRotation(deg);
+  }
+
+  rotateVideo(): number {
+    return this.canvasRenderer?.rotate90() ?? 0;
+  }
+
+  getVideoRotation(): number {
+    return this.canvasRenderer?.getRotation() ?? 0;
+  }
+
+  setFitMode(mode: any) {
+    if (this.canvasRenderer) {
+      this.canvasRenderer.setFitMode(mode);
+    } else {
+      if (mode === "contain") this.videoElement.style.objectFit = "contain";
+      else if (mode === "cover") this.videoElement.style.objectFit = "cover";
+      else if (mode === "fill") this.videoElement.style.objectFit = "fill";
+    }
+  }
+
+  getStats(): Record<string, string | number | boolean> {
+    const stats: Record<string, string | number | boolean> = {};
+
+    const active = this.dash?.getCurrentRepresentationForType?.("video") ?? null;
+    const w = active?.width || this.videoElement.videoWidth || 0;
+    const h = active?.height || this.videoElement.videoHeight || 0;
+
+    // --- Video ---
+    if (w && h) {
+      stats["Video Codec"] = active?.codecs ?? "N/A";
+      stats["Resolution"] = `${w}x${h}`;
+      const eff = Math.max(h, Math.round((w * 9) / 16));
+      stats["Quality"] = eff >= 8640 ? "16K" : eff >= 4320 ? "8K" : eff >= 2160 ? "4K" : eff >= 1440 ? "2K" : eff >= 1080 ? "1080p" : eff >= 720 ? "720p" : eff >= 480 ? "480p" : "SD";
+      if (active?.frameRate) stats["Frame Rate"] = `${active.frameRate} fps`;
+      stats["Video Bitrate"] = active?.bandwidth
+        ? `${(active.bandwidth / 1000).toFixed(0)} kbps`
+        : "N/A";
+    }
+
+    // --- Decoder ---
+    if (this.canvasRenderer) {
+      const rStats = this.canvasRenderer.getStats();
+      stats["Video Decoder"] = "Hardware (Native)";
+      stats["Renderer"] = "Canvas";
+      stats["Color Space"] = rStats.colorSpace || "N/A";
+    } else {
+      stats["Video Decoder"] = "Hardware (Native)";
+      stats["Renderer"] = "HTML5 Video";
+    }
+
+    // --- Playback ---
+    stats["Playback State"] = this.state;
+    stats["Playback Rate"] = `${this.videoElement.playbackRate}x`;
+
+    // --- Frames ---
+    const quality = (this.videoElement as any).getVideoPlaybackQuality?.();
+    if (quality) {
+      stats["Frames Decoded"] = quality.totalVideoFrames;
+      stats["Frames Dropped"] = quality.droppedVideoFrames;
+    }
+    if (this.canvasRenderer) {
+      stats["Frames Rendered"] = this._framesRendered;
+    }
+
+    // --- Buffer ---
+    if (this.videoElement.buffered.length > 0) {
+      const buffEnd = this.videoElement.buffered.end(this.videoElement.buffered.length - 1);
+      const ahead = buffEnd - this.videoElement.currentTime;
+      stats["Buffer Ahead"] = `${ahead.toFixed(1)}s`;
+    }
+
+    // --- DASH specific ---
+    const reps = this.representations;
+    if (reps.length > 1) {
+      const activeLabel = active ? `${active.height}p` : "N/A";
+      const autoOn =
+        this.dash?.getSettings?.()?.streaming?.abr?.autoSwitchBitrate?.video !== false;
+      stats["DASH Quality"] = autoOn ? `Auto (${activeLabel})` : activeLabel;
+      const heights = reps.map((r) => r.height);
+      stats["Available Levels"] = `${reps.length} (${Math.min(...heights)}p–${Math.max(...heights)}p)`;
+    }
+    const tp = this.dash?.getAverageThroughput?.("video");
+    if (tp && tp > 0) {
+      stats["Bandwidth Estimate"] = `${(tp / 1000).toFixed(0)} kbps`;
+    }
+
+    // Memory usage (Chrome only)
+    const mem = (performance as any).memory;
+    if (mem) {
+      stats["Memory Used"] = `${(mem.usedJSHeapSize / 1048576).toFixed(0)} MB`;
+    }
+
+    return stats;
+  }
+
+  getNetworkSpeed(): number {
+    // dash.js throughput is in bits/s → bytes/s.
+    const tp = this.dash?.getAverageThroughput?.("video");
+    return tp && tp > 0 ? tp / 8 : 0;
+  }
+
+  isFileSource(): boolean {
+    return false;
+  }
+
+  /**
+   * Ask dash.js which tile covers `time`. Wrapped because provideThumbnail is
+   * callback-style, and because a missing answer has to be a real outcome:
+   * dash.js drops the request without ever calling back when its thumbnail
+   * controller isn't up (before the first segment, or mid-teardown). The
+   * element fetches previews through a single-flight queue that only reopens
+   * when the current one settles, so a call that never comes back would shut
+   * seek previews for the rest of the session, not just for this hover.
+   */
+  private requestTile(time: number): Promise<Thumbnail | null> {
+    const dash = this.dash;
+    if (!dash || typeof dash.provideThumbnail !== "function") {
+      return Promise.resolve(null);
+    }
+    return new Promise<Thumbnail | null>((resolve) => {
+      let settled = false;
+      const done = (t: Thumbnail | null) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(t);
+      };
+      const timer = setTimeout(() => done(null), 4000);
+      try {
+        dash.provideThumbnail(time, (t) => done(t ?? null));
+      } catch (e) {
+        Logger.warn(TAG, "provideThumbnail failed", e);
+        done(null);
+      }
+    });
+  }
+
+  /**
+   * One probe once the manifest is parsed, so hasThumbnails() can answer
+   * synchronously afterwards.
+   *
+   * Probed at 0 and, failing that, at the playhead: on a live manifest 0 sits
+   * outside the DVR window and resolves to nothing, which would report a
+   * thumbnail track that exists as absent.
+   */
+  private async probeThumbnails(): Promise<void> {
+    let tile = await this.requestTile(0);
+    if (!tile?.url) {
+      const live = this.videoElement.currentTime || this.dash?.time?.() || 0;
+      if (live > 0) tile = await this.requestTile(live);
+    }
+    this.thumbnailsAvailable = !!tile?.url;
+    Logger.info(
+      TAG,
+      this.thumbnailsAvailable
+        ? "Manifest carries a thumbnail tile track — seek previews enabled"
+        : "No thumbnail tile track in the manifest — seek previews unavailable",
+    );
+  }
+
+  /** True when the manifest carries a thumbnail/image track for seek previews. */
+  hasThumbnails(): boolean {
+    return this.thumbnailsAvailable;
+  }
+
+  /**
+   * Record what the link is actually doing, for the next load to open on.
+   *
+   * The session PEAK, and only ever raising the shared record — see
+   * raiseLinkBps(). Throughput measured mid-playback is a floor, not a
+   * capability: observed at 2 Mbps while the very same session was sustaining a
+   * 15 Mbps rung, because the buffer was full and nothing was being pulled.
+   *
+   * dash.js reports throughput in kbps; the shared record is bits per second.
+   * (Established by playing a 14,932 kbps rung steadily while the API read
+   * ~5.9M — kbps, or the rung could not have held.)
+   */
+  private saveBandwidth(): void {
+    const kbps = this.dash?.getAverageThroughput?.("video");
+    if (typeof kbps !== "number" || !(kbps > 0)) return;
+    const bps = kbps * 1000;
+    if (bps <= this.bwPeak) return;
+    this.bwPeak = bps;
+    raiseLinkBps(bps);
+  }
+
+  /**
+   * Periodically, not only on teardown: a tab closed or killed outright never
+   * runs destroy(), and those are exactly the sessions worth learning from.
+   */
+  private startBandwidthPersistence(): void {
+    if (this.bwTimer !== null) return;
+    this.bwTimer = window.setInterval(() => this.saveBandwidth(), 15000);
+  }
+
+  /** Fetch + decode a sprite sheet once, cached by URL. */
+  private loadSprite(url: string): Promise<ImageBitmap | null> {
+    let p = this.spriteCache.get(url);
+    if (!p) {
+      p = (async () => {
+        try {
+          const res = await fetch(url, {
+            mode: "cors",
+            signal: this.lifetimeAbort.signal,
+          });
+          if (!res.ok) return null;
+          return await createImageBitmap(await res.blob());
+        } catch (e) {
+          Logger.warn(TAG, "Thumbnail sprite fetch failed", e);
+          return null;
+        }
+      })();
+      this.spriteCache.set(url, p);
+    }
+    return p;
+  }
+
+  /**
+   * Seek-preview thumbnail for `time` as a JPEG Blob, or null when the manifest
+   * carries no thumbnail track. dash.js resolves the time to a tile within a
+   * sprite sheet ({url, x, y, width, height}); we crop that tile out and hand
+   * back a Blob the MoviElement preview <img> can show — the same contract
+   * ShakaPlayerWrapper.getThumbnailBlob answers, which is what lets
+   * MoviPlayer.getPreviewFrame treat the two engines identically.
+   */
+  async getThumbnailBlob(time: number): Promise<Blob | null> {
+    if (!this.thumbnailsAvailable) return null;
+
+    const tile = await this.requestTile(time);
+    if (!tile?.url) return null;
+
+    const bitmap = await this.loadSprite(tile.url);
+    if (!bitmap) return null;
+
+    const w = tile.width || bitmap.width;
+    const h = tile.height || bitmap.height;
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    // Crop the single tile (x/y, width/height) out of the sheet.
+    ctx.drawImage(bitmap, tile.x || 0, tile.y || 0, w, h, 0, 0, w, h);
+    return new Promise<Blob | null>((resolve) =>
+      canvas.toBlob((b) => resolve(b), "image/jpeg", 0.85),
+    );
+  }
+
+  /** Aborted by destroy(), so a DRM licence request can't outlive the wrapper. */
+  private readonly lifetimeAbort = new AbortController();
+
+  destroy(): void {
+    this.lifetimeAbort.abort();
+    this.stopFrameLoop();
+
+    // Last word on this session's throughput, taken before dash.js goes —
+    // getAverageThroughput() needs it alive.
+    if (this.bwTimer !== null) {
+      clearInterval(this.bwTimer);
+      this.bwTimer = null;
+    }
+    this.saveBandwidth();
+
+    // Release cached thumbnail sprite sheets.
+    for (const p of this.spriteCache.values()) {
+      p.then((b) => b?.close()).catch(() => {});
+    }
+    this.spriteCache.clear();
+    this.thumbnailsAvailable = false;
+
+    if (this.dash) {
+      try {
+        this.dash.destroy();
+      } catch {
+        /* dash.js can throw if already torn down */
+      }
+      this.dash = null;
+    }
+
+    this.canvasRenderer?.setSubtitleOverlay(null);
+    if (this.textContainer?.parentNode) {
+      this.textContainer.parentNode.removeChild(this.textContainer);
+    }
+    this.textContainer = null;
+
+    this.videoElement.removeAttribute("src");
+    this.videoElement.load();
+    if (this.videoElement.parentNode) {
+      this.videoElement.parentNode.removeChild(this.videoElement);
+    }
+    this.removeAllListeners();
+  }
+}

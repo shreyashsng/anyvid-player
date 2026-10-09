@@ -1,0 +1,625 @@
+/**
+ * Renderer wiring for the MoviPlayer desktop shell.
+ *
+ * Media reaches <movi-player> by source:
+ *   drag & drop  → File object → player.setFile()      (zero-copy)
+ *   pick / recent / OS open-with → path → /_local?p=…   (range-streamed)
+ *   URL bar      → /_proxy?url=…                         (range pass-through)
+ */
+import { applySettings, captureSettings } from "/handoff.js";
+
+const player = document.getElementById("player");
+const welcome = document.getElementById("welcome");
+const dropzone = document.getElementById("dropzone");
+const urlForm = document.getElementById("url-form");
+const urlInput = document.getElementById("url-input");
+const dropOverlay = document.getElementById("drop-overlay");
+const toast = document.getElementById("toast");
+const recentsSection = document.getElementById("recents");
+const recentsList = document.getElementById("recents-list");
+const recentsClear = document.getElementById("recents-clear");
+const playlistPanel = document.getElementById("playlist-panel");
+const plItems = document.getElementById("pl-items");
+const plCount = document.getElementById("pl-count");
+const plClose = document.getElementById("pl-close");
+const plToggle = document.getElementById("pl-toggle");
+const plToggleCount = document.getElementById("pl-toggle-count");
+
+document.body.classList.add(
+  window.movi.platform === "darwin" ? "mac" : window.movi.platform === "win32" ? "win" : "linux"
+);
+
+// Carry the real filename as a throwaway path segment. The player derives its
+// title fallback from the URL's basename, so without this it would read
+// "_local"/"_proxy" (→ "Local"/"Proxy"). The EMBEDDED container title still
+// wins — the element only falls back to this filename when the media carries
+// no title metadata. The query (?p= / ?url=) is what the server actually reads.
+const baseName = (p) => String(p).split(/[?#]/)[0].split(/[\\/]/).pop() || String(p);
+const localSrc = (p) => `/_local/${encodeURIComponent(baseName(p))}?p=${encodeURIComponent(p)}`;
+const proxySrc = (u) => `/_proxy/${encodeURIComponent(baseName(u))}?url=${encodeURIComponent(u)}`;
+
+let toastTimer = null;
+function showToast(msg) {
+  toast.textContent = msg;
+  toast.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (toast.hidden = true), 4000);
+}
+
+// The welcome screen is held down from the head script when this window was
+// opened with a file — see index.html. Once something is playing it is hidden
+// on its own; if the file never arrives, give the screen back rather than
+// leaving a black window with nothing in it.
+function revealWelcome() {
+  document.documentElement.classList.remove("opening-file");
+}
+if (window.movi.pendingOpen) {
+  setTimeout(() => {
+    if (player.hidden) revealWelcome();
+  }, 20000);
+}
+
+function prime() {
+  revealWelcome();
+  welcome.style.display = "none";
+  player.hidden = false;
+  player.setAttribute("autoplay", "");
+}
+function loadSrc(src) {
+  prime();
+  // A /_local/ source is this machine's own disk served over loopback, so the
+  // player sees a sized HTTP source and would probe it — "needs 3250 Mbps,
+  // arriving 3240", blaming a connection that doesn't exist. /_proxy/ keeps
+  // the notice: there the network is real.
+  player.toggleAttribute("nolinkwarning", String(src).includes("/_local/"));
+  player.src = src;
+}
+async function loadFile(file) {
+  prime();
+  clearPlaylist();
+  // Prefer loading by path (via the local server) so the file also works in
+  // the PiP window and lands in Recents. Fall back to a zero-copy File when the
+  // path isn't available (then PiP isn't possible for that source).
+  const fp = window.movi.pathForFile(file);
+  // Picked/dropped files are always this machine's disk — see loadSrc.
+  player.toggleAttribute("nolinkwarning", true);
+  if (fp) {
+    try { await window.movi.grant([fp]); } catch {}
+    player.src = localSrc(fp);
+  } else if (typeof player.setFile === "function") {
+    player.setFile(file);
+  } else {
+    player.src = file;
+  }
+}
+function loadPaths(paths) {
+  openPathList(paths);
+}
+
+// ---------- Playlist ----------
+let playlist = [];
+let playlistIndex = -1;
+let panelOpen = false;
+let controlsVisible = true;
+let iconHovered = false;
+
+// The playlist icon rides with the player controls — shown only when the
+// controls are visible, a multi-file playlist exists, and the panel is closed.
+// Stay visible while hovered: the icon is a sibling over the player, so hovering
+// it makes the player hide its controls → icon hides → mouse back on the player
+// → controls show → icon shows … a flicker loop. The hover guard breaks it.
+function updatePlToggle() {
+  const show = playlist.length > 1 && !panelOpen && (controlsVisible || iconHovered);
+  plToggle.hidden = !show;
+}
+const PANEL_WIDTH = 320; // .playlist-panel flex-basis
+function openPanel() {
+  if (!panelOpen) window.movi.playlistPanel(true, PANEL_WIDTH);
+  panelOpen = true;
+  playlistPanel.classList.add("open");
+  updatePlToggle();
+}
+function closePanel() {
+  if (panelOpen) window.movi.playlistPanel(false, PANEL_WIDTH);
+  panelOpen = false;
+  playlistPanel.classList.remove("open");
+  updatePlToggle();
+}
+
+// Entry point for any batch of paths: 2+ → playlist, 1 → single play.
+function openPathList(paths) {
+  const list = (paths || []).filter(Boolean);
+  if (!list.length) return;
+  if (list.length > 1) {
+    setPlaylist(list);
+  } else {
+    clearPlaylist();
+    loadSrc(localSrc(list[0]));
+  }
+}
+
+function setPlaylist(paths) {
+  playlist = paths.slice();
+  playlistIndex = -1;
+  renderPlaylist();
+  // Don't auto-open the panel (would shrink the video). The icon surfaces with
+  // the controls; the user opens the list on demand.
+  closePanel();
+  playPlaylistItem(0);
+}
+
+function clearPlaylist() {
+  playlist = [];
+  playlistIndex = -1;
+  plItems.replaceChildren();
+  closePanel();
+}
+
+function playPlaylistItem(i) {
+  if (i < 0 || i >= playlist.length) return;
+  playlistIndex = i;
+  loadSrc(localSrc(playlist[i]));
+  updateActiveItem();
+}
+
+function renderPlaylist() {
+  plItems.replaceChildren();
+  playlist.forEach((p, i) => {
+    const li = document.createElement("li");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "pl-item";
+    btn.title = baseName(p);
+
+    const idx = document.createElement("span");
+    idx.className = "pl-index";
+    idx.textContent = String(i + 1).padStart(2, "0");
+
+    const name = document.createElement("span");
+    name.className = "pl-name";
+    name.textContent = baseName(p);
+
+    btn.append(idx, name);
+    btn.addEventListener("click", () => playPlaylistItem(i));
+    li.append(btn);
+    plItems.append(li);
+  });
+  const n = playlist.length;
+  plCount.textContent = n;
+  plToggleCount.textContent = n;
+}
+
+function updateActiveItem() {
+  Array.from(plItems.children).forEach((li, i) => {
+    li.firstElementChild.classList.toggle("active", i === playlistIndex);
+  });
+  const active = plItems.children[playlistIndex];
+  if (active) active.scrollIntoView({ block: "nearest" });
+}
+
+// Auto-advance to the next track when one ends (unless looping the current).
+player.addEventListener("ended", () => {
+  if (player.loop) return;
+  if (playlistIndex >= 0 && playlistIndex < playlist.length - 1) {
+    playPlaylistItem(playlistIndex + 1);
+  }
+});
+
+plClose.addEventListener("click", closePanel);
+plToggle.addEventListener("click", openPanel);
+plToggle.addEventListener("mouseenter", () => { iconHovered = true; updatePlToggle(); });
+plToggle.addEventListener("mouseleave", () => { iconHovered = false; updatePlToggle(); });
+
+// Sync the playlist icon with the player's own controls visibility.
+function observeControls(attempt = 0) {
+  const sr = player.shadowRoot;
+  const container = sr && sr.querySelector(".movi-controls-container");
+  if (!container) {
+    if (attempt < 30) setTimeout(() => observeControls(attempt + 1), 100);
+    return;
+  }
+  const sync = () => {
+    controlsVisible = !container.classList.contains("movi-controls-hidden");
+    updatePlToggle();
+  };
+  new MutationObserver(sync).observe(container, { attributes: true, attributeFilter: ["class"] });
+  sync();
+}
+observeControls();
+
+// ---------- Recents ----------
+function fmtSize(bytes) {
+  if (!bytes && bytes !== 0) return "";
+  const u = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  let n = bytes;
+  while (n >= 1024 && i < u.length - 1) {
+    n /= 1024;
+    i++;
+  }
+  return `${n >= 10 || i === 0 ? Math.round(n) : n.toFixed(1)} ${u[i]}`;
+}
+
+async function refreshRecents() {
+  let items = [];
+  try {
+    items = (await window.movi.getRecents()) || [];
+  } catch {
+    items = [];
+  }
+  recentsList.replaceChildren();
+  if (!items.length) {
+    recentsSection.hidden = true;
+    return;
+  }
+  for (const it of items) {
+    const li = document.createElement("li");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "recent";
+    btn.title = it.path;
+
+    const ext = document.createElement("span");
+    ext.className = "recent-ext";
+    ext.textContent = (it.ext || "FILE").toUpperCase();
+
+    const name = document.createElement("span");
+    name.className = "recent-name";
+    name.textContent = it.name;
+
+    const meta = document.createElement("span");
+    meta.className = "recent-meta";
+    meta.textContent = fmtSize(it.size);
+
+    btn.append(ext, name, meta);
+    btn.addEventListener("click", () => window.movi.openRecent(it.path));
+    li.append(btn);
+    recentsList.append(li);
+  }
+  recentsSection.hidden = false;
+}
+
+recentsClear.addEventListener("click", async () => {
+  await window.movi.clearRecents();
+  refreshRecents();
+});
+
+// ---------- UI events ----------
+urlForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const u = urlInput.value.trim();
+  if (!u) return;
+  if (!/^https?:\/\//i.test(u)) return showToast("Enter a full http(s):// link");
+  clearPlaylist();
+  loadSrc(proxySrc(u));
+  urlInput.blur();
+});
+
+// Paste a link from the clipboard, and play it if it's a valid URL.
+document.getElementById("url-paste").addEventListener("click", async () => {
+  const text = ((await window.movi.readClipboard()) || "").trim();
+  if (!text) return showToast("Clipboard is empty");
+  urlInput.value = text;
+  if (/^https?:\/\//i.test(text)) {
+    clearPlaylist();
+    loadSrc(proxySrc(text));
+    urlInput.blur();
+  } else {
+    urlInput.focus();
+    showToast("Clipboard isn't a http(s) link");
+  }
+});
+
+const pickFile = () => window.movi.openDialog();
+dropzone.addEventListener("click", pickFile);
+dropzone.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    pickFile();
+  }
+});
+
+// ---------- Drag & drop (anywhere) ----------
+let dragDepth = 0;
+window.addEventListener("dragenter", (e) => {
+  if (!e.dataTransfer || !Array.from(e.dataTransfer.types).includes("Files")) return;
+  e.preventDefault();
+  dragDepth++;
+  dropOverlay.classList.add("active");
+  document.body.classList.add("dragging");
+});
+window.addEventListener("dragover", (e) => e.preventDefault());
+window.addEventListener("dragleave", () => {
+  if (--dragDepth <= 0) {
+    dragDepth = 0;
+    dropOverlay.classList.remove("active");
+    document.body.classList.remove("dragging");
+  }
+});
+window.addEventListener("drop", async (e) => {
+  e.preventDefault();
+  dragDepth = 0;
+  dropOverlay.classList.remove("active");
+  document.body.classList.remove("dragging");
+  const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
+  if (!files.length) return;
+  // Resolve to paths so they work in the playlist (and PiP). Multiple → playlist.
+  const paths = files.map((f) => window.movi.pathForFile(f)).filter(Boolean);
+  if (paths.length) {
+    try { await window.movi.grant(paths); } catch {}
+    openPathList(paths);
+  } else {
+    loadFile(files[0]); // no path available → single, zero-copy
+  }
+});
+
+// ---------- Window follows the video (QuickTime-style) ----------
+// Once per picture: the file's own size decides the window, and after that the
+// viewer's resizing is theirs — a PiP round trip or a repeat event for the same
+// file must not undo it.
+let fittedKey = "";
+function fitWindowToVideo() {
+  if (player.hidden) return;
+  const w = player.videoWidth || 0;
+  const h = player.videoHeight || 0;
+  if (!(w > 0 && h > 0) || player.classList.contains("movi-audio-strip")) {
+    if (player.duration > 0 && fittedKey !== "audio") {
+      fittedKey = "audio";
+      window.movi.releaseVideo();
+    }
+    return;
+  }
+  // Phone clips are stored landscape with a rotation flag, so a portrait video
+  // reads 1920×1080 here and has to open tall. The flag is on the track;
+  // getVideoRotation() is the viewer's own turn on top of it (0 until they
+  // rotate), so the track's is the one that says which way up the file is.
+  let rot = 0;
+  try {
+    rot =
+      player.player?.getVideoTracks?.()?.[0]?.rotation ||
+      player.player?.getVideoRotation?.() ||
+      0;
+  } catch {}
+  const turned = Math.abs(rot) % 180 === 90;
+  const dw = turned ? h : w;
+  const dh = turned ? w : h;
+  const key = `${player.src?.name ?? player.src}|${dw}x${dh}`;
+  if (key === fittedKey) return;
+  fittedKey = key;
+  window.movi.fitVideo(dw, dh);
+}
+player.addEventListener("resize", fitWindowToVideo);
+player.addEventListener("loadedmetadata", fitWindowToVideo);
+
+// Surface player errors instead of failing silently
+player.addEventListener("error", (e) => {
+  const msg = (e && e.detail && (e.detail.message || e.detail)) || "Couldn't play that file";
+  showToast(String(msg));
+  // Nothing is playing and nothing will: the welcome screen is the only thing
+  // left to show, even if this window was opened with a file.
+  if (!player.duration) {
+    revealWelcome();
+    welcome.style.display = "";
+    player.hidden = true;
+  }
+});
+
+// ---------- Wires from main ----------
+window.movi.onLoadPaths(loadPaths);
+// Closing: let the sound out rather than cutting it. Main waits the length of
+// the fade before the window actually goes.
+window.movi.onFadeOut?.((ms) => {
+  try {
+    player.fadeOutAudio?.(ms || 200);
+  } catch {
+    /* nothing playing, or an older bundle without it */
+  }
+});
+
+window.movi.onFullscreen((on) => {
+  document.body.classList.toggle("osfs", on);
+  // Sync the player's own fullscreen UI (icon, context-menu label, auto-hide /
+  // cursor behaviour) to the OS window fullscreen. The macOS green button and the
+  // menu toggle only move the OS window — without this the player never learns it
+  // went fullscreen, so its state stays out of sync.
+  try {
+    player.setHostFullscreen(on);
+  } catch {}
+});
+
+// Route the player's own fullscreen button / F key / double-click to the OS
+// window fullscreen (same as the green button) instead of HTML element
+// fullscreen — the two would otherwise fight (after a green-button fullscreen,
+// document.fullscreenElement is null, so the player's button would ENTER element
+// fullscreen instead of exiting). The resulting window-fullscreen event drives
+// setHostFullscreen above to keep the UI in sync.
+player.addEventListener("movi-fullscreen-request", (e) => {
+  e.preventDefault();
+  window.movi.toggleFullscreen();
+});
+
+// ---------- Open URL (menu / Cmd+L) ----------
+// The welcome screen's own URL bar is the one place a link goes in — the
+// separate modal this used to open duplicated it. While a video is showing
+// the bar is off screen, so the shortcut does nothing there.
+async function showUrlPrompt() {
+  if (!player.hidden) return;
+  try {
+    const c = ((await window.movi.readClipboard()) || "").trim();
+    if (!urlInput.value && /^https?:\/\//i.test(c)) urlInput.value = c;
+  } catch {}
+  urlInput.focus();
+  urlInput.select();
+}
+
+// Menu "Open URL…" and Cmd/Ctrl+L. The keydown is captured before the player's
+// own handler so it doesn't also toggle loop (its "l" case has no modifier guard).
+window.movi.onFocusUrl(showUrlPrompt);
+window.addEventListener(
+  "keydown",
+  (e) => {
+    if ((e.metaKey || e.ctrlKey) && (e.key === "l" || e.key === "L")) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      showUrlPrompt();
+    }
+  },
+  true
+);
+
+// Forward window key presses to the player so its shortcuts (space, arrows, f,
+// m, l …) work anywhere — without the user having to click the player first.
+// (Runs in the bubble phase, after the capture-phase PiP/URL intercepts above.)
+window.addEventListener("keydown", (e) => {
+  if (player.hidden) return; // only while a video is showing
+  if (e.metaKey || e.ctrlKey || e.altKey) return; // leave menu/app shortcuts alone
+  const ae = document.activeElement;
+  if (ae && (/^(INPUT|TEXTAREA|SELECT|BUTTON|A)$/.test(ae.tagName) || ae.isContentEditable)) return;
+  if (e.composedPath().includes(player)) return; // player already received it
+  const fwd = new KeyboardEvent("keydown", {
+    key: e.key,
+    code: e.code,
+    shiftKey: e.shiftKey,
+    repeat: e.repeat,
+    bubbles: false,
+    cancelable: true,
+  });
+  player.dispatchEvent(fwd);
+  if (fwd.defaultPrevented) e.preventDefault();
+});
+
+// The player's shadow root is open, so patch desktop-only things into it.
+function patchPlayerShadow(attempt = 0) {
+  const sr = player.shadowRoot;
+  if (!sr) {
+    if (attempt < 20) setTimeout(() => patchPlayerShadow(attempt + 1), 100);
+    return;
+  }
+
+  // macOS full-bleed: push the title below the traffic lights (no window strip).
+  if (window.movi.platform === "darwin" && !sr.querySelector("#movi-desktop-patches")) {
+    const style = document.createElement("style");
+    style.id = "movi-desktop-patches";
+    // Exclude audio-strip mode — there the player is a thin 56–78px bar, not a
+    // full-bleed window, so there are no traffic lights to clear and the 46px
+    // would shove the title down past the control row.
+    style.textContent =
+      ":host(:not(:fullscreen):not(.movi-audio-strip)) .movi-title-bar { padding-top: 46px; }";
+    sr.appendChild(style);
+  }
+
+  // Document PiP doesn't render in Electron, so route the built-in PiP button
+  // to our native always-on-top PiP window instead. Intercept in the capture
+  // phase to pre-empt the element's own (no-op) Document-PiP handler.
+  if (!sr.__moviPipHooked) {
+    sr.__moviPipHooked = true;
+    sr.addEventListener(
+      "click",
+      (e) => {
+        const onPip = e.composedPath().some((el) => el.classList && el.classList.contains("movi-pip-btn"));
+        if (!onPip) return;
+        e.stopImmediatePropagation();
+        e.preventDefault();
+        openPip();
+      },
+      true
+    );
+  }
+}
+patchPlayerShadow();
+
+// ---------- Native Picture-in-Picture ----------
+let pipWasPlaying = false;
+function openPip() {
+  const src = player.src;
+  if (typeof src !== "string" || !src) {
+    showToast("Picture-in-Picture isn't available for this source");
+    return;
+  }
+  pipWasPlaying = !player.paused;
+  window.movi.pipOpen({
+    src,
+    time: player.currentTime || 0,
+    playing: pipWasPlaying,
+    // The PiP window builds its own player from nothing, so how this one was
+    // set up has to travel with the file — see handoff.js.
+    settings: captureSettings(player),
+  });
+}
+
+// The built-in "p" shortcut calls the element's Document PiP (dead in Electron).
+// Intercept it in the capture phase (before the element's own keydown handler)
+// and route to our native PiP instead.
+window.addEventListener(
+  "keydown",
+  (e) => {
+    if (e.key !== "p" || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (!e.composedPath().includes(player)) return; // only when the player is focused
+    const ae = document.activeElement;
+    if (ae && /^(INPUT|TEXTAREA)$/.test(ae.tagName)) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    openPip();
+  },
+  true
+);
+window.movi.onPipActive(() => {
+  try { player.pause(); } catch {}
+});
+window.movi.onPipClosed((state) => {
+  const t = (state && state.time) || 0;
+  const src = state && state.src;
+  const resume = () => {
+    if (t > 0) { try { player.currentTime = t; } catch {} }
+    if (pipWasPlaying) { try { player.play(); } catch {} }
+  };
+  const apply = () => {
+    if (src && src !== player.src) {
+      // PiP switched to a different file — bring it back to the main window.
+      // If it's a playlist item, stay in the playlist; otherwise it's a new
+      // single track, so drop the old playlist.
+      const idx = playlist.findIndex((p) => localSrc(p) === src);
+      if (idx >= 0) {
+        playlistIndex = idx;
+        updateActiveItem();
+      } else {
+        clearPlaylist();
+      }
+      prime();
+      player.src = src;
+      // After the assignment: the picks wait on the NEW file's trackschange,
+      // and reading the lists before it would be reading the file we just left.
+      applySettings(player, state && state.settings);
+      let n = 0;
+      const iv = setInterval(() => {
+        if (++n > 100) return clearInterval(iv);
+        if (player.duration > 0) { clearInterval(iv); resume(); }
+      }, 100);
+    } else {
+      // Whatever was changed inside the PiP window comes back with it. The file
+      // never left this player, so the track lists are already there to match.
+      applySettings(player, state && state.settings);
+      resume();
+    }
+  };
+  // The window was hidden during PiP. Reloading before it's actually visible
+  // leaves the player's snapshot-poster / deferred-load half-applied, so the
+  // controls never re-enable. Wait until we're visible, then apply.
+  if (document.visibilityState === "visible") {
+    requestAnimationFrame(apply);
+  } else {
+    let done = false;
+    const run = () => {
+      if (done) return;
+      done = true;
+      document.removeEventListener("visibilitychange", onVis);
+      requestAnimationFrame(apply);
+    };
+    const onVis = () => { if (document.visibilityState === "visible") run(); };
+    document.addEventListener("visibilitychange", onVis);
+    setTimeout(run, 800); // fallback if the event never arrives
+  }
+});
+
+refreshRecents();
+window.movi.ready();
