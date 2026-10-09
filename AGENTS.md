@@ -1,6 +1,6 @@
-# AGENTS.md — `movi-player` for AI coding assistants
+# AGENTS.md — `anyvid-player` for AI coding assistants
 
-This file orients an AI assistant (Claude, Cursor, Codex, Copilot, …) that has just been pointed at the `movi-player` repo or has it installed as a dependency. It is **not** end-user documentation — see [README.md](./README.md) and [https://moviplayer.com](https://moviplayer.com) for that. The intent here is to make the assistant useful for debugging, extending, and integrating the player without re-discovering the architecture every conversation.
+This file orients an AI assistant (Claude, Cursor, Codex, Copilot, …) that has just been pointed at the `anyvid-player` repo or has it installed as a dependency. It is **not** end-user documentation — see [README.md](./README.md) for that. The intent here is to make the assistant useful for debugging, extending, and integrating the player without re-discovering the architecture every conversation.
 
 If you are an AI assistant: read this top to bottom once, then refer back by section when you take an action that touches the player.
 
@@ -8,7 +8,7 @@ If you are an AI assistant: read this top to bottom once, then refer back by sec
 
 ## 0. Decision Records & Active Context (Token & Credit Optimization)
 
-Before diving into 15,000-line source files or full architecture re-discovery:
+Before diving into source files or full architecture re-discovery:
 - **Fast Situational Awareness**: Read [decisions/ACTIVE_CONTEXT.md](./decisions/ACTIVE_CONTEXT.md) (<500 tokens) for hard-won invariants, active task state, and quick reference tables.
 - **Architecture Decision Records**: Consult [decisions/README.md](./decisions/README.md) for individual ADRs detailing demuxing, decoding fallbacks, WebGL2 display-p3 rendering, and queue limits.
 - **Rules & Guardrails**: Review [.agents/rules/](./.agents/rules/) for anti-hallucination and token-saving directives.
@@ -17,13 +17,13 @@ Before diving into 15,000-line source files or full architecture re-discovery:
 
 ## 1. What this is
 
-`movi-player` is a browser video player that plays formats the native `<video>` element can't: MKV, HEVC, AV1, 4K HDR, multi-audio, embedded subtitles, encrypted streams. It does this with:
+`anyvid-player` is a browser media engine and video player that plays formats the native `<video>` element can't: MKV, HEVC, AV1, 4K HDR, multi-audio, embedded subtitles, encrypted streams. It does this with:
 
 - **FFmpeg (libavformat) compiled to WebAssembly** for demuxing arbitrary container formats.
 - **WebCodecs API** (Chrome, Safari 18+, Firefox 130+) for hardware-accelerated decoding when available, software dav1d/de265 in WASM as fallback.
 - **Canvas/WebGL2** for presentation (the spec for `<canvas>` lets you render HDR via `display-p3` color space; native `<video>` can't expose that on most browsers).
 
-Shipped as a web component (`<movi-player>`) plus three lower-level entry points (`/player`, `/demuxer`) for programmatic use. License: Apache-2.0.
+Shipped as a web component (`<anyvid-player>`) plus three lower-level entry points (`/player`, `/demuxer`) for programmatic use. License: Apache-2.0.
 
 The same engine ships in four wrappers built on the web component: an Electron **desktop app** (`desktop/`, Win/Mac/Linux — local files, URLs, native always-on-top PiP, playlist), a **Chrome extension** (`chrome-extension/`), a **Firefox add-on** (`firefox-extension/` — the Chrome extension's files copied in by its `build.sh`; only `manifest.json` is Gecko-specific, so edit shared UI in `chrome-extension/`), and a **VS Code extension** (`vscode-extension/`).
 

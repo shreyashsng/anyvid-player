@@ -209,7 +209,7 @@ async function buildEntry(entry, format) {
       ...(entry.slim ? { assetsInlineLimit: 0 } : {}),
       lib: {
         entry: resolve(rootDir, entry.path),
-        name: 'Movi',
+        name: 'AnyVid',
         formats: [format],
         fileName: () => `${entry.name}.${formatExt}`,
       },

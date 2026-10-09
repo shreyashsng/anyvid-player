@@ -24,31 +24,31 @@ export const Logger = {
 
   error(tag: string, message: string, ...args: unknown[]): void {
     if (currentLevel >= LogLevel.ERROR) {
-      console.error(`[movi:${tag}]`, message, ...args);
+      console.error(`[anyvid:${tag}]`, message, ...args);
     }
   },
 
   warn(tag: string, message: string, ...args: unknown[]): void {
     if (currentLevel >= LogLevel.WARN) {
-      console.warn(`[movi:${tag}]`, message, ...args);
+      console.warn(`[anyvid:${tag}]`, message, ...args);
     }
   },
 
   info(tag: string, message: string, ...args: unknown[]): void {
     if (currentLevel >= LogLevel.INFO) {
-      console.info(`[movi:${tag}]`, message, ...args);
+      console.info(`[anyvid:${tag}]`, message, ...args);
     }
   },
 
   debug(tag: string, message: string, ...args: unknown[]): void {
     if (currentLevel >= LogLevel.DEBUG) {
-      console.debug(`[movi:${tag}]`, message, ...args);
+      console.debug(`[anyvid:${tag}]`, message, ...args);
     }
   },
 
   trace(tag: string, message: string, ...args: unknown[]): void {
     if (currentLevel >= LogLevel.TRACE) {
-      console.trace(`[movi:${tag}]`, message, ...args);
+      console.trace(`[anyvid:${tag}]`, message, ...args);
     }
   },
 };

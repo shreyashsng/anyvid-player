@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Movi - Premium Player</title>
+    <title>AnyVid - Premium Player</title>
     <style>
       :root {
         --primary-accent: #6c5dd3;
@@ -450,7 +450,7 @@
 
     <div class="app-container">
       <header>
-        <div class="brand">Movi Player</div>
+        <div class="brand">AnyVid Player</div>
         <div style="display: flex; align-items: center; gap: 12px;">
           <a
             href="/dev/inspector.html"
@@ -526,8 +526,8 @@
       </section>
 
       <section class="player-stage">
-        <movi-player
-          id="movi-player"
+        <anyvid-player
+          id="anyvid-player"
           renderer="canvas"
           controls
           objectfit="control"
@@ -545,7 +545,7 @@
           <div class="shimmer-wrapper">
             <div class="shimmer"></div>
           </div>
-        </movi-player>
+        </anyvid-player>
       </section>
 
       <div class="status-bar">
@@ -560,7 +560,7 @@
       const urlInput = document.getElementById("url-input");
       const loadBtn = document.getElementById("load-btn");
       const fileInput = document.getElementById("file-input");
-      const player = document.getElementById("movi-player");
+      const player = document.getElementById("anyvid-player");
       const currentSourceDiv = document.getElementById("current-source");
       const statusDot = document.getElementById("status-indicator");
 

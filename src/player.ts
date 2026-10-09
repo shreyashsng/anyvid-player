@@ -87,5 +87,6 @@ export { Clock } from './core/Clock';
 export { PlayerStateManager } from './core/PlayerState';
 export { PlaybackController } from './core/PlaybackController';
 
-// Main export: MoviPlayer
+// Main export: MoviPlayer & AnyVidPlayer
 export { MoviPlayer } from './core/MoviPlayer';
+export { MoviPlayer as AnyVidPlayer } from './core/MoviPlayer';

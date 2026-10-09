@@ -45849,10 +45849,10 @@ export class MoviElement extends HTMLElement {
 // `import 'movi-player'` plus `movi-player/react` — would otherwise call
 // define() twice and throw "the name 'movi-player' has already been used".
 if (typeof customElements !== "undefined") {
-  if (!customElements.get("movi-player")) {
-    customElements.define("movi-player", MoviElement);
-  }
   if (!customElements.get("anyvid-player")) {
-    customElements.define("anyvid-player", class AnyvidElement extends MoviElement {});
+    customElements.define("anyvid-player", MoviElement);
+  }
+  if (!customElements.get("movi-player")) {
+    customElements.define("movi-player", class MoviPlayerElement extends MoviElement {});
   }
 }

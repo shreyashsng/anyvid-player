@@ -29,7 +29,7 @@
 
 <!-- The default slot forwards <source>/<track> children to the element for
      multi-quality, external audio, and subtitles. -->
-<movi-player
+<anyvid-player
   bind:this={element}
   {...$$restProps}
   on:timeupdate
@@ -41,4 +41,4 @@
   on:movi-qoe
 >
   <slot />
-</movi-player>
+</anyvid-player>

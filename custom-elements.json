@@ -8,10 +8,10 @@
       "declarations": [
         {
           "kind": "class",
-          "name": "MoviElement",
-          "tagName": "movi-player",
+          "name": "AnyVidElement",
+          "tagName": "anyvid-player",
           "customElement": true,
-          "description": "MoviPlayer — a WASM + WebCodecs video player custom element.\n\nPlays formats the browser cannot (MKV, HEVC, AV1, TrueHD/DTS, …) on a WebGL2 canvas, with adaptive quality, HDR, subtitles and a full built-in UI.",
+          "description": "AnyVid Player — a WASM + WebCodecs video player custom element.\n\nPlays formats the browser cannot (MKV, HEVC, AV1, TrueHD/DTS, …) on a WebGL2 canvas, with adaptive quality, HDR, subtitles and a full built-in UI.",
           "attributes": [
             {
               "name": "src",
@@ -1412,9 +1412,17 @@
       "exports": [
         {
           "kind": "custom-element-definition",
+          "name": "anyvid-player",
+          "declaration": {
+            "name": "AnyVidElement",
+            "module": "dist/element.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
           "name": "movi-player",
           "declaration": {
-            "name": "MoviElement",
+            "name": "AnyVidElement",
             "module": "dist/element.js"
           }
         }

@@ -107,8 +107,8 @@ export { PlaybackController } from './core/PlaybackController';
 // Player
 export { MoviPlayer } from './core/MoviPlayer';
 
-// Main export: MoviElement (custom HTML element)
-export { MoviElement } from './render/MoviElement';
+// Main export: MoviElement & AnyVidElement (custom HTML element)
+export { MoviElement, MoviElement as AnyVidElement } from './render/MoviElement';
 // Host-supplied bar buttons / context-menu rows — see MoviElement.addControl.
 export type { MoviControlSpec, MoviControlItem, MoviDividerSpec } from './render/MoviElement';
 // One entry in the queue — see MoviElement.playlist.
@@ -445,8 +445,14 @@ export interface MoviTrackProps {
 
 declare global {
   interface HTMLElementTagNameMap {
-    // `document.querySelector('movi-player')` / `document.querySelector('anyvid-player')`
-    "movi-player": MoviElementType;
+    // `document.querySelector('anyvid-player')` / `document.querySelector('movi-player')`
     "anyvid-player": MoviElementType;
+    "movi-player": MoviElementType;
   }
 }
+
+// AnyVid Primary Aliases
+export type AnyVidPlayerAttributes = MoviPlayerAttributes;
+export type AnyVidSourceProps = MoviSourceProps;
+export type AnyVidTrackProps = MoviTrackProps;
+export type AnyVidElementType = MoviElementType;

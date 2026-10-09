@@ -368,7 +368,7 @@ const cssParts = buildParts();
 const slots = buildSlots();
 
 const TAG_DESCRIPTION =
-  "MoviPlayer — a WASM + WebCodecs video player custom element.\n\n" +
+  "AnyVid Player — a WASM + WebCodecs video player custom element.\n\n" +
   "Plays formats the browser cannot (MKV, HEVC, AV1, TrueHD/DTS, …) on a WebGL2 " +
   "canvas, with adaptive quality, HDR, subtitles and a full built-in UI.";
 
@@ -384,8 +384,8 @@ const manifest = {
       declarations: [
         {
           kind: "class",
-          name: "MoviElement",
-          tagName: "movi-player",
+          name: "AnyVidElement",
+          tagName: "anyvid-player",
           customElement: true,
           description: TAG_DESCRIPTION,
           attributes: attributes.map((a) => ({
@@ -407,8 +407,13 @@ const manifest = {
       exports: [
         {
           kind: "custom-element-definition",
+          name: "anyvid-player",
+          declaration: { name: "AnyVidElement", module: "dist/element.js" },
+        },
+        {
+          kind: "custom-element-definition",
           name: "movi-player",
-          declaration: { name: "MoviElement", module: "dist/element.js" },
+          declaration: { name: "AnyVidElement", module: "dist/element.js" },
         },
       ],
     },
@@ -416,29 +421,32 @@ const manifest = {
 };
 
 /* 2. VS Code HTML custom data. */
+const htmlTagConfig = (tagName) => ({
+  name: tagName,
+  description: { kind: "markdown", value: TAG_DESCRIPTION },
+  attributes: attributes.map((a) => ({
+    name: a.name,
+    description: { kind: "markdown", value: a.description },
+    ...(a.values.length
+      ? {
+          values: a.values.map((v) => ({
+            name: v.name,
+            ...(v.description
+              ? { description: { kind: "markdown", value: stripMd(v.description) } }
+              : {}),
+          })),
+        }
+      : {}),
+    references: [{ name: "Documentation", url: `${DOCS_BASE}#${a.name}` }],
+  })),
+  references: [{ name: "Documentation", url: DOCS_BASE }],
+});
+
 const htmlData = {
   version: 1.1,
   tags: [
-    {
-      name: "movi-player",
-      description: { kind: "markdown", value: TAG_DESCRIPTION },
-      attributes: attributes.map((a) => ({
-        name: a.name,
-        description: { kind: "markdown", value: a.description },
-        ...(a.values.length
-          ? {
-              values: a.values.map((v) => ({
-                name: v.name,
-                ...(v.description
-                  ? { description: { kind: "markdown", value: stripMd(v.description) } }
-                  : {}),
-              })),
-            }
-          : {}),
-        references: [{ name: "Documentation", url: `${DOCS_BASE}#${a.name}` }],
-      })),
-      references: [{ name: "Documentation", url: DOCS_BASE }],
-    },
+    htmlTagConfig("anyvid-player"),
+    htmlTagConfig("movi-player"),
   ],
 };
 

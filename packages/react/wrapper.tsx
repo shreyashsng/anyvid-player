@@ -178,7 +178,7 @@ export const MoviPlayer = React.forwardRef<MoviElement, MoviPlayerProps>(
     // `movi.wasm` next to the bundle and, if that 404s/403s, silently drops to
     // native <video> (where split video+audio sources lose their audio).
     return React.createElement(
-      "movi-player",
+      "anyvid-player",
       {
         ref: elRef,
         className: props.className,
@@ -189,6 +189,9 @@ export const MoviPlayer = React.forwardRef<MoviElement, MoviPlayerProps>(
     );
   },
 );
+
+export const AnyVidPlayer = MoviPlayer;
+export type AnyVidPlayerProps = MoviPlayerProps;
 
 /**
  * A typed `<source>` for a `<MoviPlayer>` child list. Maps its friendly props

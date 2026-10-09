@@ -139,7 +139,7 @@ export const MoviPlayer = defineComponent({
     // drops to native <video> (where split video+audio sources lose audio).
     return () =>
       h(
-        "movi-player",
+        "anyvid-player",
         { ref: elRef, wasmurl: attrs.wasmurl as string | undefined },
         slots.default?.(),
       );
@@ -212,5 +212,9 @@ export const MoviTrack = defineComponent({
     };
   },
 });
+
+export const AnyVidPlayer = MoviPlayer;
+export const AnyVidSource = MoviSource;
+export const AnyVidTrack = MoviTrack;
 
 export type { MoviElement, QoEEvent, MoviSourceProps, MoviTrackProps };
