@@ -20,6 +20,7 @@ import {
   type PropType,
 } from "vue";
 import type {
+  AnyVidElement,
   MoviElement,
   MoviSourceProps,
   MoviTrackProps,
@@ -217,4 +218,4 @@ export const AnyVidPlayer = MoviPlayer;
 export const AnyVidSource = MoviSource;
 export const AnyVidTrack = MoviTrack;
 
-export type { MoviElement, QoEEvent, MoviSourceProps, MoviTrackProps };
+export type { AnyVidElement, MoviElement, QoEEvent, MoviSourceProps, MoviTrackProps };

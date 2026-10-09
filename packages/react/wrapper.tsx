@@ -12,6 +12,7 @@
  */
 import * as React from "react";
 import type {
+  AnyVidElement,
   MoviElement,
   MoviPlayerAttributes,
   MoviSourceProps,
@@ -19,9 +20,25 @@ import type {
   QoEEvent,
 } from "anyvid-player/element";
 
-export type { MoviElement, QoEEvent, MoviSourceProps, MoviTrackProps };
+export type { AnyVidElement, MoviElement, QoEEvent, MoviSourceProps, MoviTrackProps };
+
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      "anyvid-player": React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement> & {
+        wasmurl?: string;
+        [key: string]: any;
+      };
+      "movi-player": React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement> & {
+        wasmurl?: string;
+        [key: string]: any;
+      };
+    }
+  }
+}
 
 export interface MoviPlayerProps extends MoviPlayerAttributes {
+  wasmurl?: string;
   className?: string;
   style?: React.CSSProperties;
   /** `<source>` / `<track>` children for multi-quality, external audio, or subtitles. */
