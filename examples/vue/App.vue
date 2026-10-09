@@ -2,7 +2,7 @@
      Run inside any Vite Vue app:  npm i anyvid-player -->
 <script setup lang="ts">
 import { ref } from "vue";
-import { AnyVidPlayer, type AnyVidElement, type QoEEvent } from "../../packages/vue";
+import { AnyVidPlayer, type AnyVidElement, type QoEEvent } from "anyvid-player/vue";
 
 const player = ref<{ element: AnyVidElement | null }>();
 const qoe = ref<QoEEvent[]>([]);

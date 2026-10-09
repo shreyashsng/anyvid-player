@@ -17,6 +17,6 @@
  * JS. For the slim build (separate, cacheable movi.wasm) import
  * `movi-player/vue/slim` instead — same components, same props.
  */
-import "movi-player/element"; // registers <movi-player> (side effect)
+import "anyvid-player/element"; // registers <anyvid-player> (side effect)
 
 export * from "./wrapper.js";

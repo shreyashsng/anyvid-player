@@ -19,9 +19,24 @@
         "outDir": "./dist",
         "rootDir": "./src",
         "paths": {
-            "movi": [
-                "./src/index.ts"
-            ]
+            "anyvid-player": ["./src/index.ts"],
+            "anyvid-player/element": ["./src/element.ts"],
+            "anyvid-player/element/slim": ["./src/element-slim.ts"],
+            "anyvid-player/player": ["./src/player.ts"],
+            "anyvid-player/demuxer": ["./src/demuxer.ts"],
+            "anyvid-player/react": ["./packages/react/index.tsx"],
+            "anyvid-player/vue": ["./packages/vue/index.ts"],
+            "anyvid-player/svelte": ["./packages/svelte/AnyVidPlayer.svelte"],
+            "anyvid-player/*": ["./src/*"],
+            "movi-player": ["./src/index.ts"],
+            "movi-player/element": ["./src/element.ts"],
+            "movi-player/element/slim": ["./src/element-slim.ts"],
+            "movi-player/player": ["./src/player.ts"],
+            "movi-player/demuxer": ["./src/demuxer.ts"],
+            "movi-player/react": ["./packages/react/index.tsx"],
+            "movi-player/vue": ["./packages/vue/index.ts"],
+            "movi-player/svelte": ["./packages/svelte/AnyVidPlayer.svelte"],
+            "movi-player/*": ["./src/*"]
         },
         "resolveJsonModule": true,
         "isolatedModules": true,

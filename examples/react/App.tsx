@@ -1,7 +1,7 @@
 // Minimal React example for anyvid-player/react.
 // Run inside any Vite/CRA/Next React app:  npm i anyvid-player
 import { useRef, useState } from "react";
-import { AnyVidPlayer, type AnyVidElement, type QoEEvent } from "../../packages/react";
+import { AnyVidPlayer, type AnyVidElement, type QoEEvent } from "anyvid-player/react";
 
 export default function App() {
   const playerRef = useRef<AnyVidElement>(null);

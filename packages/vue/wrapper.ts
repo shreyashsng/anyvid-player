@@ -24,7 +24,7 @@ import type {
   MoviSourceProps,
   MoviTrackProps,
   QoEEvent,
-} from "movi-player/element";
+} from "anyvid-player/element";
 
 export const MoviPlayer = defineComponent({
   name: "MoviPlayer",

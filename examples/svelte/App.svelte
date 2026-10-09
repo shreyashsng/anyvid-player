@@ -1,8 +1,8 @@
 <!-- Minimal Svelte example for anyvid-player/svelte.
      Run inside any Vite Svelte app:  npm i anyvid-player -->
 <script lang="ts">
-  import AnyVidPlayer from "../../packages/svelte/AnyVidPlayer.svelte";
-  import type { AnyVidElement, QoEEvent } from "../../src/element";
+  import AnyVidPlayer from "anyvid-player/svelte";
+  import type { AnyVidElement, QoEEvent } from "anyvid-player/element";
 
   let player: AnyVidElement | null = null;
   let qoe: QoEEvent[] = [];

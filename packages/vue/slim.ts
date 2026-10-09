@@ -13,6 +13,6 @@
  * attribute at it. If the WASM can't be fetched, playback falls back to the
  * browser's native <video> on its own.
  */
-import "movi-player/element/slim"; // registers <movi-player> (side effect)
+import "anyvid-player/element/slim"; // registers <anyvid-player> (side effect)
 
 export * from "./wrapper.js";

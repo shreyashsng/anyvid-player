@@ -14,8 +14,8 @@
   instead — same component, same props; keep the two files in sync.
 -->
 <script lang="ts">
-  import "movi-player/element"; // registers <movi-player> (side effect)
-  import type { MoviElement } from "movi-player/element";
+  import "anyvid-player/element"; // registers <anyvid-player> (side effect)
+  import type { AnyVidElement as MoviElement } from "anyvid-player/element";
 
   /** The underlying element instance (bind:element to reach the player API). */
   export let element: MoviElement | null = null;

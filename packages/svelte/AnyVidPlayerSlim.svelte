@@ -20,8 +20,8 @@
   sync — any markup/event change here belongs there too.
 -->
 <script lang="ts">
-  import "movi-player/element/slim"; // registers <movi-player> (side effect)
-  import type { MoviElement } from "movi-player/element";
+  import "anyvid-player/element/slim"; // registers <anyvid-player> (side effect)
+  import type { AnyVidElement as MoviElement } from "anyvid-player/element";
 
   /** The underlying element instance (bind:element to reach the player API). */
   export let element: MoviElement | null = null;
