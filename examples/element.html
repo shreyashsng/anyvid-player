@@ -574,8 +574,8 @@
       </div>
 
       <section class="player-stage">
-        <movi-player
-          id="movi-player"
+        <anyvid-player
+          id="anyvid-player"
           renderer="canvas"
           controls
           objectfit="control"
@@ -590,7 +590,7 @@
           <div class="shimmer-wrapper">
             <div class="shimmer"></div>
           </div>
-        </movi-player>
+        </anyvid-player>
       </section>
 
       <div class="status-bar">
@@ -600,12 +600,12 @@
     </div>
 
     <script type="module">
-      import "movi-player/element";
+      import "anyvid-player/element";
 
       const urlInput = document.getElementById("url-input");
       const loadBtn = document.getElementById("load-btn");
       const fileInput = document.getElementById("file-input");
-      const player = document.getElementById("movi-player");
+      const player = document.getElementById("anyvid-player");
       const currentSourceDiv = document.getElementById("current-source");
       const statusDot = document.getElementById("status-indicator");
 

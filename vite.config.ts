@@ -74,6 +74,26 @@ function devCorsProxyPlugin(): Plugin {
 
 export default defineConfig({
   plugins: [devCorsProxyPlugin()],
+  resolve: {
+    alias: {
+      'anyvid-player/element/slim': fileURLToPath(new URL('./src/element-slim.ts', import.meta.url)),
+      'anyvid-player/element': fileURLToPath(new URL('./src/element.ts', import.meta.url)),
+      'anyvid-player/player': fileURLToPath(new URL('./src/player.ts', import.meta.url)),
+      'anyvid-player/demuxer': fileURLToPath(new URL('./src/demuxer.ts', import.meta.url)),
+      'anyvid-player/react': fileURLToPath(new URL('./packages/react/index.tsx', import.meta.url)),
+      'anyvid-player/vue': fileURLToPath(new URL('./packages/vue/index.ts', import.meta.url)),
+      'anyvid-player/svelte': fileURLToPath(new URL('./packages/svelte/AnyVidPlayer.svelte', import.meta.url)),
+      'anyvid-player': fileURLToPath(new URL('./src/index.ts', import.meta.url)),
+      'movi-player/element/slim': fileURLToPath(new URL('./src/element-slim.ts', import.meta.url)),
+      'movi-player/element': fileURLToPath(new URL('./src/element.ts', import.meta.url)),
+      'movi-player/player': fileURLToPath(new URL('./src/player.ts', import.meta.url)),
+      'movi-player/demuxer': fileURLToPath(new URL('./src/demuxer.ts', import.meta.url)),
+      'movi-player/react': fileURLToPath(new URL('./packages/react/index.tsx', import.meta.url)),
+      'movi-player/vue': fileURLToPath(new URL('./packages/vue/index.ts', import.meta.url)),
+      'movi-player/svelte': fileURLToPath(new URL('./packages/svelte/AnyVidPlayer.svelte', import.meta.url)),
+      'movi-player': fileURLToPath(new URL('./src/index.ts', import.meta.url)),
+    },
+  },
   // Keep the dev server / vitest in sync with the same version define the
   // production build injects, so MoviElement.version works there too.
   define: {
